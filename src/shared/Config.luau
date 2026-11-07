@@ -201,7 +201,7 @@ local Config = {
 	Map = {
 		-- City generated from OpenStreetMap (ServerStorage.MapData, made by tools/osm_to_roblox.py).
 		BuildAtRuntime = true, -- build on server start if Workspace.City is missing (or bake it in Studio)
-		YieldEvery = 120, -- features per frame while building at runtime
+		FrameBudget = 0.012, -- seconds of city-building work per frame at runtime (then yield)
 		ReplaceBaseplate = true, -- the 2048-stud template baseplate is replaced by ground covering the city
 		MoveSpawns = true, -- move SpawnLocations to the generated spawn point (a main road near the centre)
 		WindowBands = true, -- window strips on panel blocks (cheap facade detail)

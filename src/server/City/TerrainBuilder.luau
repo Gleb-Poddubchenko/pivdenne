@@ -87,8 +87,8 @@ function TerrainBuilder.Build(tick: () -> ()): boolean
 			end
 			slab(terrain, p00, p10, p11, floor, material) -- the two triangles Height.At() uses
 			slab(terrain, p00, p11, p01, floor, material)
+			tick() -- per cell: the caller yields when its frame budget is used up
 		end
-		tick()
 	end
 
 	-- Coastal cliffs over a sand beach.

@@ -384,8 +384,9 @@ function CityBuilder.GetIndex(): any
 	return nil
 end
 
--- Builds Workspace.City. yieldEvery = features per frame (nil = no yielding).
-function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
+-- Builds Workspace.City. frameBudget = seconds of work per frame before yielding
+-- (nil = never yield, for baking from the Studio command bar).
+function CityBuilder.Build(parentRoot: Instance, frameBudget: number?): Model?
 	local index = CityBuilder.GetIndex()
 	if not index then
 		warn("[City] No map data. Run tools/fetch_osm.sh to generate map/data.")
@@ -400,11 +401,13 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 	city.Name = "City"
 	city:SetAttribute("Attribution", index.Attribution)
 
-	local count = 0
+	-- Yield on a time budget, not a count: some steps (terrain rows, long roads) are
+	-- far heavier than others, and a spawned thread runs until its first yield.
+	local sliceStart = os.clock()
 	local function tick()
-		count += 1
-		if yieldEvery and count % yieldEvery == 0 then
+		if frameBudget and os.clock() - sliceStart > frameBudget then
 			task.wait()
+			sliceStart = os.clock()
 		end
 	end
 

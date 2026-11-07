@@ -106,7 +106,7 @@ function CityService.Init()
 	CityService.BuildServicePoint(Vector3.new(index.Spawn.x, 0, index.Spawn.z))
 
 	if Config.Map.BuildAtRuntime and not workspace:FindFirstChild("City") then
-		task.spawn(CityBuilder.Build, workspace, Config.Map.YieldEvery)
+		task.spawn(CityBuilder.Build, workspace, Config.Map.FrameBudget)
 	end
 end
 

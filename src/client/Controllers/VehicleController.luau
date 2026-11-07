@@ -194,7 +194,9 @@ function VehicleController.Init()
 
 	-- Engine pitch for cars near the camera (5 Hz, cosmetic only).
 	task.spawn(function()
-		local folder = workspace:WaitForChild("Vehicles")
+		-- created by VehicleService; a timeout argument avoids the "infinite yield" warning
+		-- while the server is still starting up (the city build can take a while)
+		local folder = workspace:WaitForChild("Vehicles", math.huge)
 		while true do
 			task.wait(0.2)
 			local camPos = workspace.CurrentCamera.CFrame.Position

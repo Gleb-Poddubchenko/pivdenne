@@ -48,9 +48,22 @@ local order = {
 	"AddressService",
 }
 
+-- One failing service must not take the rest down with it (it did: a city-build
+-- timeout in CityService stopped VehicleService and everything after it).
+local failed = {}
 for _, name in order do
-	local module = require(Services:WaitForChild(name)) :: any
-	module.Init()
+	local ok, err = xpcall(function()
+		local module = require(Services:WaitForChild(name)) :: any
+		module.Init()
+	end, debug.traceback)
+	if not ok then
+		table.insert(failed, name)
+		warn(("[Yuzhne] %s failed to start:\n%s"):format(name, tostring(err)))
+	end
 end
 
-print("[Yuzhne] Server ready")
+if #failed == 0 then
+	print("[Yuzhne] Server ready")
+else
+	warn("[Yuzhne] Server started WITH ERRORS in: " .. table.concat(failed, ", "))
+end
