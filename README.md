@@ -8,6 +8,7 @@ Phase 1 sets up the foundation: data persistence, entrances, entrance doors, int
 default.project.json                      Rojo project (also turns on StreamingEnabled)
 tools/fetch_osm.sh        download OSM data for Pivdenne and convert it
 tools/osm_to_roblox.py    OSM XML -> Luau map chunks (buildings, addresses, plates, roads, areas, POIs)
+tools/osm_details.py      street-level detail: coastline, trees, lamps, crossings, bus stops, benches, bins, rail
 map/data/        -> ServerStorage.MapData             (generated Luau chunks + Index)
 src/shared/      -> ReplicatedStorage.Shared          (ModuleScripts)
   Config.luau            scale (1 m = 3.5 studs), prices, timings, sound ids
@@ -45,6 +46,9 @@ src/server/      -> ServerScriptService.Server
     FishingService       casting, bites, catches, water zones (map + FishingSpot), fish buyer
     AddressService       real-address search from OSM data (for the phone)
   City/MapData           read-only access to the generated chunks
+  City/StreetDetails     sea, railway, trees, street lamps, zebras, bus shelters, benches, bins
+  City/Facade            real OSM colours/materials, plinths, parapets, balconies, antennas, lift rooms
+    LightingService      day/night with the real sun path at 46.62°N, sea haze
   Building/EntrancePlanner  which OSM entrances become working ones, flat ranges (addr:flats or estimated)
   Building/EntranceBuilder  outside of a working entrance: door, intercom, reader, canopy, doorway trigger
   Building/StairwellBuilder Soviet stairwell: marches, landings, flat doors, lift, chute, mailboxes
@@ -60,6 +64,7 @@ src/server/      -> ServerScriptService.Server
   Dev/TestParkingBuilder dealership, parking lot with 4 spots, a long test road
   Dev/TestEquipmentBuilder sports kiosk, fishing pond with a pier, fish stall
   Dev/TestStairwellBuilder  a city-style entrance "test-a/3" (flats 73–108, 9 floors, lift) on the test block
+  Dev/TestStreetBuilder  lamps, zebra, bus shelter, trees, benches, bins around the test scene
 src/client/      -> StarterPlayer.StarterPlayerScripts.Client
   Main.client.luau       LocalScript: bootstrap
   Controllers/           DataController, HudController, KeyRingController,
@@ -70,7 +75,8 @@ src/client/      -> StarterPlayer.StarterPlayerScripts.Client
                          VehicleController (driving physics, speedometer, horn/lights),
                          GarageController (my cars, dealership),
                          EquipmentController (sports shop, loadout, fishing feedback),
-                         PhoneController (clock, money, address search + marker)
+                         PhoneController (clock, money, address search + marker),
+                         NightLightsController (street lamps + lit windows near you at night)
   Ui/UiKit.luau          GUI helpers (all GUIs are built in code)
 ```
 
@@ -313,8 +319,37 @@ When map data exists, the dev test scene isn't built, because it would overlap t
 | 8 | Leave for 90 s | Explorer: Workspace.Stairwells is emptied; entering again rebuilds it |
 | 9 | With map data | the same works on every mapped entrance of every apartment block in Pivdenne |
 
+**Realism pass: details**
+
+Real OSM objects are used wherever they're mapped. Generated detail only fills gaps, is reproducible (seeded by position), and never lands on buildings or roads.
+
+| Detail | Source | In game |
+|---|---|---|
+| **Sea, estuary, lakes** | `natural=coastline` (water is right of the way direction), `natural=water` | Terrain water 16 studs deep you can swim in; Black Sea green-blue; the ground is Terrain too |
+| **Trees** | real `natural=tree`, `tree_row`; generated in parks, forests, grass and **residential courtyards** | trunk + ellipsoid crown, round crowns and pyramidal poplars, varied greens |
+| **Street lamps** | real `highway=street_lamp`; generated every ~35 m along streets with no mapped lamps | concrete pole, arm over the road, sodium-orange light at night |
+| **Zebra crossings** | `highway=crossing`, aligned to the road under them | white stripes across the road |
+| **Road markings** | main roads (trunk/primary/secondary/tertiary) | dashed centre line (3 m dash / 6 m gap) |
+| **Bus stops** | `highway=bus_stop` with the **real stop name** | shelter with bench and a name sign |
+| **Benches, bins** | `amenity=bench`, `waste_disposal`/`recycling`; plus a bench beside **every working під'їзд** | Soviet slatted bench on concrete legs, green containers |
+| **Railway** | `railway=rail` | ballast + rails at the real **1520 mm** gauge |
+| **Building colours** | `building:colour`, `roof:colour`, `building:material` | the real colour and material; typology palette otherwise |
+| **Panel blocks** | typology | dark plinth (цоколь), roof parapet, TV antennas, balcony columns on the side without entrances, with the **patchwork of glazed and open balconies** |
+| **Roofs** | entrances with a lift | lift machine room above each lifted entrance |
+| **Sky** | real latitude 46.62°N | day/night cycle (24 min); sea haze, warm southern light; at night lamps and ~45% of windows light up near you |
+
+Everything is switchable in `Config.Map` (`Trees`, `StreetLamps`, `Balconies`, `RoofDetails`, …) to tune for phones. The converter prints a count for every detail type.
+
+**How to test without map data:** Play and look around the test scene:
+- lamps and a zebra crossing on the road next to the parking lot
+- a bus shelter
+- trees and benches in front of the test block
+- containers by the pond
+
+Set `Lighting.ClockTime = 21` in the server view: the lamps come on near you.
+
 **Still to come in Phase 2:**
-- The sea and coastline (`natural=coastline` → Terrain water).
+- Terrain elevation: OSM has no heights. The coastal slope and cliffs would need an elevation source (e.g. SRTM) and another allowed host. (`natural=coastline` → Terrain water).
 - Facade templates with balconies.
 - Courtyard props: playgrounds, benches, garages.
 
@@ -376,6 +411,7 @@ When map data exists, the dev test scene isn't built, because it would overlap t
 - Entrance door style: brown or green steel, the canopy shape, and whether there are steps or a ramp.
 - Origin coordinates for the map projection, and the positions of landmarks: central square(s), the seaside promenade and beach access, the port and plant area, schools, markets, the bus station, main shops.
 - Lifts in Yuzhne: which plant made them (Karacharovo/KMZ, Mogilev/MOGILEVLIFTMASH, Shcherbinka?), and whether 1980s blocks have **automatic sliding shaft doors** rather than the hinged ones you asked for. Hinged manual shaft doors are typical of older lifts. Also the cabin size, the panel layout (one or two button columns, СТОП/ВИКЛИК labels in Russian or Ukrainian), the wall finish, and whether a lift stops at every floor or only at half-landings.
+- Street-level look: lamp pole types (concrete or metal), bus shelter design, tree species along the main streets (the generator mixes round crowns and poplars), balcony glazing share, building colours (OSM rarely tags `building:colour`).
 - Address plate design in Yuzhne: colours, size, height, which corner, and whether one or both street-facing corners have one. The defaults are white on dark blue, 60 × 40 cm, 3 m up (`Config.Map.Plate`).
 - OSM coverage: how many buildings have `building:levels` and `addr:*`, and whether entrances are mapped. The converter prints these numbers; anything missing is best fixed directly in OSM.
 - Stairwells in Yuzhne: number of flats per landing, which side the lift is on, whether there's a garbage chute, wall colours, and whether there are ground-floor flats or a raised ground floor.

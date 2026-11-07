@@ -23,6 +23,8 @@ local Geometry = require(script.Parent.Geometry)
 local AddressPlates = require(script.Parent.AddressPlates)
 local EntrancePlanner = require(script.Parent.Parent.Building.EntrancePlanner)
 local EntranceBuilder = require(script.Parent.Parent.Building.EntranceBuilder)
+local StreetDetails = require(script.Parent.StreetDetails)
+local Facade = require(script.Parent.Facade)
 
 local M = Config.Meters
 local FLOOR_H = M(2.8)
@@ -208,6 +210,7 @@ local function windowBands(parent: Instance, cf: CFrame, length: number, width: 
 			band.CanCollide = false
 			band.CanQuery = false
 			band.Reflectance = 0.15
+			CollectionService:AddTag(band, "WindowBand") -- some light up at night (client)
 		end
 	end
 end
@@ -269,20 +272,34 @@ local function buildBuilding(parent: Instance, b: any)
 		model:SetAttribute("Name", b.nm)
 	end
 
-	local color = pick(PALETTE[b.t] or PALETTE.other, b.id)
+	-- Real OSM colours/material when mapped, otherwise a typology palette.
+	local color = Facade.ParseColour(b.bc) or pick(PALETTE[b.t] or PALETTE.other, b.id)
+	local roofColor = Facade.ParseColour(b.rc) or ROOF
 	local h: number = b.h
-	local material = if b.t == "house" or b.t == "garage" then Enum.Material.Brick else Enum.Material.Concrete
+	local material = Facade.ParseMaterial(b.mat)
+		or (if b.t == "house" or b.t == "garage" then Enum.Material.Brick else Enum.Material.Concrete)
 
 	if b.rect then
 		local cx, cz, L, W, angle = b.rect[1], b.rect[2], b.rect[3], b.rect[4], b.rect[5]
 		local base = CFrame.new(cx, 0, cz) * CFrame.Angles(0, -angle, 0)
 		Geometry.Part(model, "Body", Vector3.new(L, h, W), base * CFrame.new(0, h / 2, 0), color, material)
-		Geometry.Part(model, "Roof", Vector3.new(L + 0.4, 0.5, W + 0.4), base * CFrame.new(0, h + 0.25, 0), ROOF, Enum.Material.Slate)
-		if Config.Map.WindowBands and string.sub(b.t, 1, 5) == "panel" then
+		Geometry.Part(model, "Roof", Vector3.new(L + 0.4, 0.5, W + 0.4), base * CFrame.new(0, h + 0.25, 0), roofColor, Enum.Material.Slate)
+		if string.sub(b.t, 1, 5) == "panel" then
 			local floors = if b.lv > 0 then b.lv else math.max(1, math.floor(h / FLOOR_H))
 			local longSide = L >= W
 			local bandCF = if longSide then base else base * CFrame.Angles(0, math.pi / 2, 0)
-			windowBands(model, bandCF, if longSide then L else W, if longSide then W else L, floors)
+			local longLen, shortLen = if longSide then L else W, if longSide then W else L
+			if Config.Map.WindowBands then
+				windowBands(model, bandCF, longLen, shortLen, floors)
+			end
+			-- Balconies go on the long face without the entrances (usually the street
+			-- or garden side); entrances face the courtyard.
+			local entranceSide = 0
+			for _, e in b.en or {} do
+				local n = bandCF:VectorToObjectSpace(Vector3.new(e.nx or 0, 0, e.nz or 0))
+				entranceSide += if n.Z > 0 then 1 else -1
+			end
+			Facade.PanelBlock(model, bandCF, longLen, shortLen, h, floors, color, b.id, if entranceSide > 0 then -1 else 1)
 		end
 	else
 		local p: { number } = b.p
@@ -300,7 +317,7 @@ local function buildBuilding(parent: Instance, b: any)
 				Geometry.Part(model, "Wall", Vector3.new(len + WALL_T, h, WALL_T), CFrame.fromMatrix(center, dir, Vector3.yAxis), color, material)
 			end
 		end
-		Geometry.Polygon(model, p, b.tri, h + 0.25, 0.5, ROOF, Enum.Material.Slate)
+		Geometry.Polygon(model, p, b.tri, h + 0.25, 0.5, roofColor, Enum.Material.Slate)
 	end
 
 	-- Real address plates on the wall facing the street (positions computed offline).
@@ -317,7 +334,21 @@ local function buildBuilding(parent: Instance, b: any)
 		for i, e in b.en do
 			local plan = plans[i]
 			if plan then
-				EntranceBuilder.Build(model, plan :: any)
+				local pl = plan :: any
+				EntranceBuilder.Build(model, pl)
+				local normal = Vector3.new(e.nx or 0, 0, e.nz or 0)
+				if normal.Magnitude > 0.5 then
+					normal = normal.Unit
+					local side = Vector3.new(-normal.Z, 0, normal.X)
+					if Config.Map.EntranceBenches then
+						-- the bench by the під'їзд (left of the door, away from the intercom), facing the courtyard
+						local pos = Vector3.new(e.x, 0, e.z) - side * M(2.2) + normal * M(1.8)
+						StreetDetails.Bench(model, pos.X, pos.Z, math.atan2(normal.Z, normal.X))
+					end
+					if pl.HasLift then
+						Facade.LiftRoom(model, Vector3.new(e.x, 0, e.z), normal, h, color)
+					end
+				end
 			else
 				entranceDetail(model, e, h)
 			end
@@ -370,15 +401,29 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 		end
 	end
 
-	-- Ground: 2048-stud plates covering the map bounds plus a margin.
+	-- Ground covering the map bounds plus a margin: Terrain (so the sea can be cut
+	-- into it) or 2048-stud plates.
 	local ground = Instance.new("Model")
 	ground.Name = "Ground"
 	local b = index.Bounds
 	local size = 2048
+	local terrain = workspace.Terrain
+	if Config.Map.TerrainGround then
+		terrain:SetMaterialColor(Enum.Material.Ground, Color3.fromRGB(122, 126, 84))
+		terrain:SetMaterialColor(Enum.Material.Grass, Color3.fromRGB(104, 132, 70))
+		terrain.WaterColor = Color3.fromRGB(28, 92, 110) -- Black Sea green-blue
+		terrain.WaterWaveSize = 0.12
+		terrain.WaterTransparency = 0.6
+		terrain.WaterReflectance = 0.6
+	end
 	for gx = math.floor((b.minX - 400) / size), math.floor((b.maxX + 400) / size) do
 		for gz = math.floor((b.minZ - 400) / size), math.floor((b.maxZ + 400) / size) do
-			Geometry.Part(ground, "Ground", Vector3.new(size, 2, size), CFrame.new((gx + 0.5) * size, -1, (gz + 0.5) * size),
-				Color3.fromRGB(116, 128, 80), Enum.Material.Ground)
+			if Config.Map.TerrainGround then
+				terrain:FillBlock(CFrame.new((gx + 0.5) * size, -2, (gz + 0.5) * size), Vector3.new(size, 4, size), Enum.Material.Ground)
+			else
+				Geometry.Part(ground, "Ground", Vector3.new(size, 2, size), CFrame.new((gx + 0.5) * size, -1, (gz + 0.5) * size),
+					Color3.fromRGB(116, 128, 80), Enum.Material.Ground)
+			end
 		end
 	end
 	ground.Parent = city
@@ -396,7 +441,9 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 
 				for _, a in chunk.a do
 					local style = AREA_STYLE[a.t]
-					if style then
+					if a.t == "water" and Config.Map.TerrainGround then
+						Geometry.TerrainPolygon(a.p, a.tri, 0, Config.Map.SeaDepth, Enum.Material.Water)
+					elseif style then
 						Geometry.Polygon(chunkModel, a.p, a.tri, 0.03, 0.06, style[1] :: Color3, style[2] :: Enum.Material)
 					end
 					tick()
@@ -407,6 +454,25 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 					Geometry.Polyline(chunkModel, r.p, r.w, y, 0.2,
 						if minor then Color3.fromRGB(150, 146, 140) else Color3.fromRGB(62, 62, 64),
 						if minor then Enum.Material.Pavement else Enum.Material.Asphalt)
+					if Config.Map.RoadMarkings and (r.t == "primary" or r.t == "secondary" or r.t == "tertiary" or r.t == "trunk") then
+						-- dashed centre line: 3 m dash, 6 m gap
+						local p = r.p
+						for i = 1, #p // 2 - 1 do
+							local a0 = Vector3.new(p[2 * i - 1], y + 0.11, p[2 * i])
+							local b0 = Vector3.new(p[2 * i + 1], y + 0.11, p[2 * i + 2])
+							local len = (b0 - a0).Magnitude
+							local dir = if len > 0 then (b0 - a0) / len else Vector3.zAxis
+							local d = M(1.5)
+							while d < len do
+								local pos = a0 + dir * d
+								local dash = Geometry.Part(chunkModel, "Marking", Vector3.new(0.4, 0.04, M(3)), CFrame.lookAt(pos, pos + dir), Color3.fromRGB(235, 235, 230))
+								dash.CanCollide = false
+								dash.CanQuery = false
+								dash.CastShadow = false
+								d += M(9)
+							end
+						end
+					end
 					tick()
 				end
 				for _, bld in chunk.b do
@@ -421,6 +487,7 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 					end
 					serviceAt(chunkModel, poi)
 				end
+				StreetDetails.BuildChunk(chunkModel, chunk, tick)
 			else
 				warn("[City] Could not load", name, chunk)
 			end

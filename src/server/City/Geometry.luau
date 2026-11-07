@@ -18,6 +18,43 @@ function Geometry.Part(parent: Instance, name: string, size: Vector3, cf: CFrame
 	return p
 end
 
+-- Splits a triangle into two right-angled wedges: returns (cf1, size1, cf2, size2) or nil.
+local function wedgePair(a: Vector3, b: Vector3, c: Vector3, thickness: number): (CFrame?, Vector3?, CFrame?, Vector3?)
+	local ab, ac, bc = b - a, c - a, c - b
+	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+	if abd > acd and abd > bcd then
+		c, a = a, c
+	elseif acd > bcd and acd > abd then
+		a, b = b, a
+	end
+	ab, ac, bc = b - a, c - a, c - b
+	local cross = ac:Cross(ab)
+	if cross.Magnitude < 1e-6 or bc.Magnitude < 1e-6 then
+		return nil, nil, nil, nil
+	end
+	local right = cross.Unit
+	local up = bc:Cross(right).Unit
+	local back = bc.Unit
+	local height = math.abs(ab:Dot(up))
+	return CFrame.fromMatrix((a + b) / 2, right, up, back), Vector3.new(thickness, height, math.abs(ab:Dot(back))),
+		CFrame.fromMatrix((a + c) / 2, -right, up, -back), Vector3.new(thickness, height, math.abs(ac:Dot(back)))
+end
+
+-- Fill a flat triangulated polygon with Terrain (e.g. Water), `depth` studs deep below y.
+function Geometry.TerrainPolygon(flat: { number }, tri: { number }, y: number, depth: number, material: Enum.Material)
+	local terrain = workspace.Terrain
+	local function v(i: number): Vector3
+		return Vector3.new(flat[2 * i - 1], y - depth / 2, flat[2 * i])
+	end
+	for k = 1, #tri - 2, 3 do
+		local cf1, s1, cf2, s2 = wedgePair(v(tri[k]), v(tri[k + 1]), v(tri[k + 2]), depth)
+		if cf1 and s1 and cf2 and s2 then
+			terrain:FillWedge(cf1, s1, material)
+			terrain:FillWedge(cf2, s2, material)
+		end
+	end
+end
+
 -- Any 3D triangle as two WedgeParts (thickness along the triangle normal).
 function Geometry.Triangle(parent: Instance, a: Vector3, b: Vector3, c: Vector3, thickness: number, color: Color3, material: Enum.Material?)
 	local ab, ac, bc = b - a, c - a, c - b

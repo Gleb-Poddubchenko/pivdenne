@@ -208,6 +208,19 @@ local Config = {
 		EntranceDetails = true, -- canopy + door + "під'їзд" plate at OSM entrance nodes
 		ShowBrandNames = false, -- shop/fuel/bank labels show a generic category instead of chain names
 		LabelDistance = 220, -- studs at which POI labels are visible
+		-- Realism details (turn down for low-end phones)
+		TerrainGround = true, -- ground and sea/lakes as Terrain (real water you can swim in)
+		SeaExtrude = 1200, -- studs of sea drawn on the water side of each coastline segment
+		SeaDepth = 16,
+		Trees = true,
+		StreetLamps = true,
+		RoadMarkings = true, -- dashed centre lines on main roads, zebra crossings
+		StreetFurniture = true, -- bus shelters, benches, rubbish containers, railway
+		EntranceBenches = true, -- the classic bench by every під'їзд
+		Balconies = true,
+		BalconySpacing = 6.6, -- metres between balcony columns on panel blocks
+		GlazedBalconyChance = 0.45, -- the patchwork of glazed / open balconies
+		RoofDetails = true, -- lift machine rooms, roof parapets, TV antennas, plinths
 		-- Address plate (адресна табличка). Colours/size NEEDS VERIFICATION from photos.
 		Plate = {
 			Width = 0.6, -- metres
@@ -216,6 +229,15 @@ local Config = {
 			Background = Color3.fromRGB(18, 58, 140),
 			TextColor = Color3.fromRGB(255, 255, 255),
 		},
+	},
+
+	Time = {
+		DayLengthMinutes = 24, -- one in-game day
+		StartClock = 13,
+		Latitude = 46.62, -- Pivdenne: real sun path
+		NightStart = 19.8,
+		NightEnd = 6.2,
+		LightDistance = 320, -- client lights street lamps / windows within this range
 	},
 
 	Dev = {

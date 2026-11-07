@@ -18,6 +18,7 @@ local order = {
 	"GarageController",
 	"EquipmentController",
 	"PhoneController",
+	"NightLightsController",
 }
 
 for _, name in order do
