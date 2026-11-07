@@ -53,10 +53,26 @@ function InventoryService.Count(player: Player, itemId: string): number
 	return if data then data.Inventory[itemId] or 0 else 0
 end
 
+-- Set by EquipmentService (the backpack): player -> (extra distinct items, extra per stack).
+local capacityBonus: ((Player) -> (number, number))? = nil
+
+function InventoryService.SetCapacityBonus(fn: (Player) -> (number, number))
+	capacityBonus = fn
+end
+
+local function limits(player: Player): (number, number)
+	local cfg = Config.Inventory
+	local extraDistinct, extraStack = 0, 0
+	if capacityBonus then
+		extraDistinct, extraStack = capacityBonus(player)
+	end
+	return cfg.MaxDistinctItems + extraDistinct, cfg.MaxStack + extraStack
+end
+
 function InventoryService.CanAdd(player: Player, itemId: string, qty: number): boolean
 	local data = PlayerDataService.Get(player)
-	local cfg = Config.Inventory
-	return data ~= nil and Items[itemId] ~= nil and fits(data.Inventory, itemId, qty, cfg.MaxDistinctItems, cfg.MaxStack)
+	local maxDistinct, maxStack = limits(player)
+	return data ~= nil and Items[itemId] ~= nil and fits(data.Inventory, itemId, qty, maxDistinct, maxStack)
 end
 
 function InventoryService.Add(player: Player, itemId: string, qty: number): boolean
@@ -138,7 +154,8 @@ local function onStorageMove(player: Player, aptKey: any, itemId: any, qty: any,
 		if (storage[itemId] or 0) < qty then
 			return false, "Немає стільки"
 		end
-		if not fits(data.Inventory, itemId, qty, Config.Inventory.MaxDistinctItems, Config.Inventory.MaxStack) then
+		local maxDistinct, maxStack = limits(player)
+		if not fits(data.Inventory, itemId, qty, maxDistinct, maxStack) then
 			return false, "Руки зайняті — інвентар повний"
 		end
 		PlayerDataService.Update(player, function(d)

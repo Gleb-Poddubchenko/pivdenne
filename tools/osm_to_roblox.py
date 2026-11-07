@@ -55,6 +55,12 @@ AREA_TAGS = [
 ]
 
 POI_KEYS = ("amenity", "shop", "tourism", "leisure", "public_transport", "railway", "office", "man_made")
+# Kinds that become working game services (tills, fish buyer, equipment shop)
+# even when the OSM object has no name.
+SERVICE_KINDS = {
+    "amenity=marketplace", "amenity=pharmacy", "shop=convenience", "shop=supermarket", "shop=kiosk",
+    "shop=bakery", "shop=sports", "shop=outdoor", "shop=fishing", "shop=hardware", "shop=doityourself",
+}
 
 STREET_ABBREVIATIONS = [
     ("вулиця", "вул."), ("проспект", "просп."), ("провулок", "пров."), ("бульвар", "бульв."),
@@ -449,21 +455,51 @@ def build_features(nodes, ways, relations):
         areas.append({"id": wid, "t": kind, "p": pts, "tri": triangulate(pts), "nm": tags.get("name") or ""})
 
     # ---- POIs (named amenities as labels: schools, markets, bus station, shops...)
-    pois = []
+    def poi_kind(tags):
+        return next((f"{k}={tags[k]}" for k in POI_KEYS if k in tags), "")
+
+    raw_pois = []
     for nid, (lat, lon, tags) in nodes.items():
-        name = tags.get("name")
-        if name and any(k in tags for k in POI_KEYS):
-            x, z = project(lat, lon)
-            kind = next((f"{k}={tags[k]}" for k in POI_KEYS if k in tags), "")
-            pois.append({"x": x, "z": z, "nm": name, "k": kind})
+        kind = poi_kind(tags)
+        name = tags.get("name") or ""
+        if kind and (name or kind in SERVICE_KINDS):
+            raw_pois.append((project(lat, lon), name, kind))
     for wid, (refs, tags) in ways.items():
-        name = tags.get("name")
-        if name and any(k in tags for k in POI_KEYS) and refs and refs[0] == refs[-1]:
+        kind = poi_kind(tags)
+        name = tags.get("name") or ""
+        if kind and (name or kind in SERVICE_KINDS) and refs and refs[0] == refs[-1] and "building" not in tags:
             pts = ring_of(refs)
             if pts:
-                x, z = centroid(pts[:-1] or pts)
-                kind = next((f"{k}={tags[k]}" for k in POI_KEYS if k in tags), "")
-                pois.append({"x": x, "z": z, "nm": name, "k": kind})
+                raw_pois.append((centroid(pts[:-1] or pts), name, kind))
+        elif kind and (name or kind in SERVICE_KINDS) and "building" in tags and refs and refs[0] == refs[-1]:
+            pts = ring_of(refs)
+            if pts:
+                raw_pois.append((centroid(pts[:-1] or pts), name, kind))
+
+    # Shop nodes usually sit inside a building outline: move them just outside the
+    # nearest wall (facing out) so the counter/till is reachable from the street.
+    bboxes = []
+    for b in buildings:
+        xs = [q[0] for q in b["p"]]
+        zs = [q[1] for q in b["p"]]
+        bboxes.append((min(xs), min(zs), max(xs), max(zs), b["p"]))
+    pois = []
+    for (x, z), name, kind in raw_pois:
+        nx = nz = 0.0
+        for minx, minz, maxx, maxz, pts in bboxes:
+            if minx <= x <= maxx and minz <= z <= maxz and point_in_polygon((x, z), pts):
+                best = None
+                for i in range(len(pts)):
+                    pa, pb = pts[i], pts[(i + 1) % len(pts)]
+                    d, q = seg_point_distance((x, z), pa, pb)
+                    L = dist(pa, pb)
+                    if L > 0 and (best is None or d < best[0]):
+                        best = (d, q, (pb[1] - pa[1]) / L, -(pb[0] - pa[0]) / L)
+                if best:
+                    _, q, nx, nz = best
+                    x, z = q[0] + nx * 1.2 * STUDS_PER_METER, q[1] + nz * 1.2 * STUDS_PER_METER
+                break
+        pois.append({"x": x, "z": z, "nm": name, "k": kind, "nx": nx, "nz": nz})
 
     return buildings, roads, areas, pois, stats
 
@@ -581,7 +617,7 @@ def area_lua(a):
 
 
 def poi_lua(p):
-    return "{" + f"x={num(p['x'])},z={num(p['z'])},nm={lua_str(p['nm'])},k={lua_str(p['k'])}" + "}"
+    return "{" + f"x={num(p['x'])},z={num(p['z'])},nx={num(p['nx'])},nz={num(p['nz'])},nm={lua_str(p['nm'])},k={lua_str(p['k'])}" + "}"
 
 
 def chunk_key(x, z):

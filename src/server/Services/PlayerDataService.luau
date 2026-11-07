@@ -66,6 +66,8 @@ local function template(): PlayerData
 		Cars = {},
 		Inventory = {},
 		Storage = {},
+		Equipment = {},
+		Loadout = {},
 	}
 end
 
@@ -127,6 +129,8 @@ local function snapshot(data: PlayerData): Types.Snapshot
 		Inventory = table.clone(data.Inventory),
 		Storage = storage,
 		Cars = table.clone(data.Cars),
+		Equipment = table.clone(data.Equipment),
+		Loadout = table.clone(data.Loadout),
 	}
 end
 

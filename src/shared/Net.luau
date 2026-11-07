@@ -22,6 +22,7 @@ local EVENTS = {
 	"DoorbellAnswer", -- C->S (ringId, accept)
 	"UseItem", -- C->S (itemId)
 	"VehicleAction", -- C->S ("honk" | "lights" | "lock" | "flip" | "despawn")
+	"FishingState", -- S->C ("cast" | "bite" | "caught" | "escaped" | "reeled", info)
 }
 
 local FUNCTIONS = {
@@ -32,6 +33,10 @@ local FUNCTIONS = {
 	"StorageMove", -- (aptKey, itemId, qty, "in" | "out") -> (ok, message)
 	"BuyCar", -- (modelId, colorIndex) -> (ok, message)
 	"SpawnCar", -- (carId) -> (ok, message)
+	"BuyEquipment", -- (equipmentId) -> (ok, message)
+	"SetLoadout", -- ({ equipmentId }) -> (ok, message)
+	"GetStreets", -- () -> { string }
+	"FindAddress", -- (street, number) -> (ok, Vector3 | message, label?)
 }
 
 local Net = {}

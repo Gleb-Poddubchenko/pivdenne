@@ -17,6 +17,8 @@ src/shared/      -> ReplicatedStorage.Shared          (ModuleScripts)
   Items.luau             every item (food, household, pharmacy) with prices and use effects
   ShopCatalogs.luau      what each kind of shop sells (Grocery, Kiosk, Pharmacy)
   Vehicles.luau          car models (specs, prices) and Soviet-era paint colours
+  Equipment.luau         equipment you own and carry (phone, flashlight, umbrella, rod, backpack)
+  TextUtil.luau          Cyrillic-aware lower-casing and street/number normalisation
 src/server/      -> ServerScriptService.Server
   Main.server.luau       Script: bootstrap, init order
   Services/              ModuleScripts, one system each
@@ -38,12 +40,18 @@ src/server/      -> ServerScriptService.Server
   City/AddressPlates     street + house-number plate on a wall
   City/Geometry          part / triangle / polygon / polyline helpers
     CityService          builds the city at runtime and moves the spawn onto a real street
+    EquipmentService     buying equipment, loadout, tools on spawn, flashlight/umbrella, backpack bonus
+    FishingService       casting, bites, catches, water zones (map + FishingSpot), fish buyer
+    AddressService       real-address search from OSM data (for the phone)
+  City/MapData           read-only access to the generated chunks
+  Equipment/ToolFactory  builds the Tool models
   Util/                  RateLimiter, Validation, Sfx
   Dev/TestSceneBuilder   test 9-storey block (turn off with Config.Dev.BuildTestScene)
   Dev/TestElevatorBuilder test 9-stop lift tower with landings and a climbable ladder
   Dev/TestApartmentBuilder flat doors in the test lobbies (flats 1–4 and 37–40)
   Dev/TestShopBuilder    grocery shop, ice-cream kiosk and pharmacy kiosk
   Dev/TestParkingBuilder dealership, parking lot with 4 spots, a long test road
+  Dev/TestEquipmentBuilder sports kiosk, fishing pond with a pier, fish stall
 src/client/      -> StarterPlayer.StarterPlayerScripts.Client
   Main.client.luau       LocalScript: bootstrap
   Controllers/           DataController, HudController, KeyRingController,
@@ -52,7 +60,9 @@ src/client/      -> StarterPlayer.StarterPlayerScripts.Client
                          InventoryController (bag + fridge), ShopController,
                          ApartmentController (teleport fade, doorbell popup),
                          VehicleController (driving physics, speedometer, horn/lights),
-                         GarageController (my cars, dealership)
+                         GarageController (my cars, dealership),
+                         EquipmentController (sports shop, loadout, fishing feedback),
+                         PhoneController (clock, money, address search + marker)
   Ui/UiKit.luau          GUI helpers (all GUIs are built in code)
 ```
 
@@ -271,17 +281,56 @@ When map data exists, the dev test scene isn't built, because it would overlap t
 - Facade templates with balconies.
 - Courtyard props: playgrounds, benches, garages.
 
-## 9. Roadmap
+## 9. Phase 6: equipment
+
+**What it does**
+- **Equipment** is bought once at a **«Спорттовари»** counter (tag `EquipmentShop`) and kept forever (`PlayerData.Equipment`). You choose what to carry in the loadout (J, up to 4 slots, `PlayerData.Loadout`). Carried tools appear in the Roblox hotbar on every spawn.
+  - **Мобільний телефон**, ₴150: while it's in your hand you see the clock and your money, and can **search for a real address**. Street suggestions come from the OSM data; Cyrillic matching works for both "вул. Хіміків" and "хіміків". A map marker shows the distance in metres. Only addresses that exist in OpenStreetMap can be found.
+  - **Ліхтарик**, ₴60: click to switch the real SpotLight on and off.
+  - **Парасолька**, ₴40: open and close.
+  - **Вудка**, ₴120: fishing (below).
+  - **Рюкзак**, ₴200 (passive): +15 item kinds and +10 per stack in the bag, and it's visible on your back.
+- **Fishing, the first way to earn money:**
+  - **Where:** near water. That's a `FishingSpot` part, or a water/beach area from the OSM data.
+  - **Catching:** click to cast. After 4–12 s you get **"Клює!"**, and you have 2.5 s to click again. Miss it and the fish gets away.
+  - **Catches:** бичок, тюлька, ставрида, піленгас, and rarely камбала (₴150).
+  - **Selling:** at a **«Риба»** counter (tag `FishBuyer`).
+  - **Ending a cast:** walking away or putting the rod away reels in.
+- **In the real city**, OSM shops turn into working counters at their real locations, just outside their building and facing the street:
+  - convenience stores and supermarkets → grocery till
+  - kiosks → kiosk till
+  - pharmacies → pharmacy till
+  - sports and hardware shops → equipment counter
+  - the marketplace → equipment counter **and** fish buyer
+  - labels stay generic, never chain names
+- **Server-authoritative:** prices and ownership are checked on the server; activating a tool only counts while it's in the holder's hand; casting checks water distance on the server; catches are rolled on the server; selling checks distance.
+
+**How to test** (test scene: kiosk at x ≈ −75, pond at x ≈ −115)
+
+| # | Test | Expected |
+|---|---|---|
+| 1 | СПОРТТОВАРИ → buy a rod and a phone | money goes down; both appear in the hotbar (they're added to your loadout automatically) |
+| 2 | Walk onto the pier, rod in hand, click | "Закинули"; a red bobber with a line |
+| 3 | Wait for "КЛЮЄ!" and click within 2.5 s | "Спіймали: Бичок!"; it shows up in the bag (B) |
+| 4 | Don't click after a bite | "Зірвалася…" |
+| 5 | Cast away from water | "Тут немає води" |
+| 6 | РИБА stall → Продати рибу | money goes up by the fish prices; the fish leave the bag |
+| 7 | J → untick the rod | it leaves the hotbar; it's back after respawning only if ticked |
+| 8 | Buy the backpack | a bag on your back; more space in the inventory |
+| 9 | With map data: phone → type part of a street → pick one → house number → Знайти | the marker appears at that building; "Ви на місці" when you arrive |
+| 10 | Flashlight at night (Lighting.ClockTime = 22) | the beam lights the way |
+
+## 10. Roadmap
 
 - **Phase 1 (done):** data, entrances, doors, intercoms, keys, flats, kiosks.
 - **Phase 2 (in progress):** done: OSM converter, city builder, real address plates, entrances, roads, areas, POI labels. Next: working entrances with instanced stairwells, lifts and flat doors, the coastline, facade templates, courtyard props.
 - **Phase 3 (done):** Soviet elevator system.
 - **Phase 4 (done):** apartments (instanced interiors, doorbell, fridge) and shops (catalogues, tills, inventory). Next: a "2k" layout, furniture you can buy and place, a way to earn money (jobs), and shop opening hours with a day/night cycle.
 - **Phase 5 (done):** vehicles. Next: fuel and petrol stations, garages in courtyards (tag `CarSpawn` inside a garage), traffic/NPC cars, damage.
-- **Phase 6:** equipment.
+- **Phase 6 (done):** equipment, fishing economy, phone with address search, real shop counters in the city. Next: more jobs (courier with the car, market seller), bicycle, camera.
 - Intercom voice: wire `AudioDeviceInput → AudioEmitter` on the panel and the handset (Roblox's new Audio API) for players who have voice chat. Text chat stays as the fallback.
 
-## 10. NEEDS VERIFICATION (please send photos / Street View)
+## 11. NEEDS VERIFICATION (please send photos / Street View)
 
 - Exact panel layouts and colours of the Vizit and Metacom models actually fitted in Yuzhne: display type (LED or LCD), position of the call key, reader shape, and whether the entrance door has a visible maglock.
 - Which key type each building uses (TM tablet or RFID fob), and whether any panels accept both.
@@ -295,6 +344,6 @@ When map data exists, the dev test scene isn't built, because it would overlap t
 - Flat layouts in Yuzhne's panel series: room sizes, combined or separate bathroom, glazed or open balconies, and flats per floor. Please send floor plans or photos.
 - Real shop names: these get parody names unless you confirm otherwise.
 
-## 11. Assets and licensing
+## 12. Assets and licensing
 
 Every model in this phase is built from primitive Parts in code. Sound ids in `Config.Sounds` and `IntercomBrands.*.Sounds` are empty on purpose: upload your own recordings, or sounds licensed for Roblox, and paste the ids in. Until then the game runs silently.

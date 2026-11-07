@@ -12,6 +12,7 @@
 -- Rectangular footprints (most panel blocks) become ONE box part plus a roof slab
 -- and window bands; other shapes become wall segments and a triangulated roof.
 
+local CollectionService = game:GetService("CollectionService")
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -130,6 +131,68 @@ local function addLabel(parent: Instance, position: Vector3, text: string)
 	label.Text = text
 	label.Parent = bb
 	anchor.Parent = parent
+end
+
+-- SERVICES AT REAL LOCATIONS ----------------------------------------------------
+-- Real shops / pharmacies / markets from OSM get working game counters right
+-- where they are in the city (just outside their building, facing the street).
+
+local TILL_CATALOG: { [string]: string } = {
+	["shop=convenience"] = "Grocery",
+	["shop=supermarket"] = "Grocery",
+	["shop=bakery"] = "Grocery",
+	["shop=kiosk"] = "Kiosk",
+	["amenity=pharmacy"] = "Pharmacy",
+}
+local EQUIPMENT_KINDS: { [string]: boolean } = {
+	["shop=sports"] = true, ["shop=outdoor"] = true, ["shop=fishing"] = true,
+	["shop=hardware"] = true, ["shop=doityourself"] = true,
+}
+
+local function counterFrame(poi: any): CFrame
+	local normal = Vector3.new(poi.nx or 0, 0, poi.nz or 0)
+	local pos = Vector3.new(poi.x, 0, poi.z)
+	if normal.Magnitude < 0.5 then
+		normal = Vector3.new(0, 0, -1)
+	end
+	-- Front face (-Z) of the counter looks out to the street.
+	return CFrame.lookAt(pos, pos + normal.Unit)
+end
+
+local function serviceAt(parent: Instance, poi: any)
+	local catalog = TILL_CATALOG[poi.k]
+	local isMarket = poi.k == "amenity=marketplace"
+	if not (catalog or isMarket or EQUIPMENT_KINDS[poi.k]) then
+		return
+	end
+	local base = counterFrame(poi)
+	local id = ("osm_%d_%d"):format(math.floor(poi.x), math.floor(poi.z))
+	local display = labelText(poi.k, poi.nm) or "Магазин"
+
+	if catalog then
+		local shop = Instance.new("Model")
+		shop.Name = "Shop_" .. id
+		shop:SetAttribute("ShopId", id)
+		shop:SetAttribute("Catalog", catalog)
+		shop:SetAttribute("DisplayName", display)
+		Geometry.Part(shop, "Counter", Vector3.new(M(1.6), M(1.0), M(0.6)), base * CFrame.new(0, M(0.5), 0),
+			Color3.fromRGB(150, 110, 70), Enum.Material.Wood)
+		Geometry.Part(shop, "Till", Vector3.new(M(0.4), M(0.25), M(0.35)), base * CFrame.new(M(0.4), M(1.0) + M(0.125), 0),
+			Color3.fromRGB(50, 50, 55))
+		shop.Parent = parent
+		CollectionService:AddTag(shop, "Shop")
+	end
+	if EQUIPMENT_KINDS[poi.k] or isMarket then
+		local offset = if isMarket then CFrame.new(M(2.2), 0, 0) else CFrame.new()
+		local stall = Geometry.Part(parent, "EquipmentShop", Vector3.new(M(1.6), M(1.0), M(0.6)), base * offset * CFrame.new(0, M(0.5), 0),
+			Color3.fromRGB(40, 120, 60), Enum.Material.Wood)
+		CollectionService:AddTag(stall, "EquipmentShop")
+	end
+	if isMarket then
+		local fish = Geometry.Part(parent, "FishBuyer", Vector3.new(M(1.6), M(1.0), M(0.6)), base * CFrame.new(-M(2.2), M(0.5), 0),
+			Color3.fromRGB(70, 110, 150), Enum.Material.Wood)
+		CollectionService:AddTag(fish, "FishBuyer")
+	end
 end
 
 -- BUILDINGS -------------------------------------------------------------------
@@ -346,6 +409,7 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 					if text then
 						addLabel(chunkModel, Vector3.new(poi.x, 8, poi.z), text)
 					end
+					serviceAt(chunkModel, poi)
 				end
 			else
 				warn("[City] Could not load", name, chunk)

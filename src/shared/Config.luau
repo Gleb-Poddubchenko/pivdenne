@@ -21,7 +21,7 @@ local Config = {
 	Data = {
 		StoreName = "YuzhnePlayerData_v1",
 		ApartmentRegistryStore = "YuzhneApartments_v1",
-		SchemaVersion = 2, -- v2: Inventory as itemId -> count, apartment Storage
+		SchemaVersion = 3, -- v2: Inventory itemId -> count + Storage; v3: Equipment + Loadout
 		AutosaveInterval = 60,
 		-- A session lock older than this is treated as abandoned (crashed server).
 		-- Must be comfortably larger than AutosaveInterval, because autosave refreshes it.
@@ -82,6 +82,11 @@ local Config = {
 		FlatDoor = "", -- flat door opening/closing
 		LightSwitch = "", -- wall switch click
 		Purchase = "", -- till / receipt
+		-- Equipment / fishing
+		FlashlightClick = "",
+		UmbrellaOpen = "",
+		FishingCast = "",
+		FishingSplash = "", -- bite / catch
 		-- Vehicles
 		CarEngine = "", -- looped engine; pitch follows speed (client-side)
 		CarHorn = "",
@@ -155,6 +160,23 @@ local Config = {
 		ActionDistance = 30, -- lock/lights/flip/despawn range
 		SpeedCheckFactor = 1.6, -- server flags cars faster than TopSpeed * this
 		RegionCode = "BH", -- Odesa oblast plate prefix
+	},
+
+	Equipment = {
+		LoadoutSlots = 4,
+		BackpackBonusDistinct = 15,
+		BackpackBonusStack = 10,
+	},
+
+	Fishing = {
+		WaterDistance = 25, -- studs from water/beach to be allowed to cast
+		CastDistance = 14, -- bobber lands this far in front of you
+		BiteMin = 4,
+		BiteMax = 12,
+		BiteWindow = 2.5, -- seconds to click again after "Клює!"
+		MaxDrift = 25, -- walking further than this from the bobber reels in
+		-- itemId -> weight
+		Catch = { fish_goby = 50, fish_sprat = 25, fish_horse = 15, fish_mullet = 8, fish_flounder = 2 } :: { [string]: number },
 	},
 
 	Map = {

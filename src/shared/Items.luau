@@ -38,6 +38,12 @@ local list: { Item } = {
 	{ Id = "bulb", Name = "Лампочка 60 Вт", Price = 25, Category = "Господарські", Color = Color3.fromRGB(255, 240, 180) },
 	{ Id = "soap", Name = "Мило господарське", Price = 15, Category = "Господарські", Color = Color3.fromRGB(150, 100, 50) },
 	{ Id = "matches", Name = "Сірники", Price = 5, Category = "Господарські", Color = Color3.fromRGB(200, 60, 40) },
+	-- Fish (caught with the fishing rod, sold at the market; Price = what the buyer pays)
+	{ Id = "fish_goby", Name = "Бичок", Price = 15, Category = "Риба", Color = Color3.fromRGB(120, 100, 70) },
+	{ Id = "fish_sprat", Name = "Тюлька", Price = 8, Category = "Риба", Color = Color3.fromRGB(180, 190, 200) },
+	{ Id = "fish_horse", Name = "Ставрида", Price = 25, Category = "Риба", Color = Color3.fromRGB(150, 170, 180) },
+	{ Id = "fish_mullet", Name = "Піленгас", Price = 60, Category = "Риба", Color = Color3.fromRGB(130, 140, 150) },
+	{ Id = "fish_flounder", Name = "Камбала", Price = 150, Category = "Риба", Color = Color3.fromRGB(140, 120, 90) },
 	-- Pharmacy
 	{ Id = "bandage", Name = "Бинт", Price = 25, Category = "Аптека", Color = Color3.fromRGB(245, 245, 245), Use = { Heal = 35, Message = "Перев'язали рану." } },
 	{ Id = "valerian", Name = "Валеріанка", Price = 30, Category = "Аптека", Color = Color3.fromRGB(150, 100, 60), Use = { Heal = 10, Message = "Заспокоїлися." } },

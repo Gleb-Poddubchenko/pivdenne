@@ -25,6 +25,8 @@ export type PlayerData = {
 	Cars: { CarData },
 	Inventory: { [string]: number }, -- itemId -> count
 	Storage: { [string]: { [string]: number } }, -- aptKey -> (itemId -> count), e.g. the fridge
+	Equipment: { [string]: boolean }, -- owned equipment ids
+	Loadout: { string }, -- carried equipment ids (max Config.Equipment.LoadoutSlots)
 }
 
 -- What the client is allowed to see about its own data.
@@ -35,6 +37,8 @@ export type Snapshot = {
 	Inventory: { [string]: number },
 	Storage: { [string]: { [string]: number } },
 	Cars: { CarData },
+	Equipment: { [string]: boolean },
+	Loadout: { string },
 }
 
 return {}
