@@ -4,3 +4,5 @@ sourcemap.json
 *.lock
 .DS_Store
 data/
+__pycache__/
+*.pyc
