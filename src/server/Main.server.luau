@@ -22,6 +22,7 @@ if Config.Dev.BuildTestScene and (Config.Dev.ForceTestScene or not CityService.H
 	require(Dev:WaitForChild("TestShopBuilder")).Build()
 	require(Dev:WaitForChild("TestParkingBuilder")).Build()
 	require(Dev:WaitForChild("TestEquipmentBuilder")).Build()
+	require(Dev:WaitForChild("TestStairwellBuilder")).Build()
 end
 
 local order = {
@@ -38,6 +39,7 @@ local order = {
 	"ShopService",
 	"InteriorService",
 	"ApartmentDoorService",
+	"StairwellService",
 	"VehicleService",
 	"EquipmentService",
 	"FishingService",

@@ -39,11 +39,18 @@ src/server/      -> ServerScriptService.Server
   City/CityBuilder       builds Workspace.City from MapData (also bakeable from the command bar)
   City/AddressPlates     street + house-number plate on a wall
   City/Geometry          part / triangle / polygon / polyline helpers
-    CityService          builds the city at runtime and moves the spawn onto a real street
+    CityService          builds the city at runtime, moves the spawn, adds the spawn service point
+    StairwellService     city entrances: open door -> instanced stairwell; exit; cleanup
     EquipmentService     buying equipment, loadout, tools on spawn, flashlight/umbrella, backpack bonus
     FishingService       casting, bites, catches, water zones (map + FishingSpot), fish buyer
     AddressService       real-address search from OSM data (for the phone)
   City/MapData           read-only access to the generated chunks
+  Building/EntrancePlanner  which OSM entrances become working ones, flat ranges (addr:flats or estimated)
+  Building/EntranceBuilder  outside of a working entrance: door, intercom, reader, canopy, doorway trigger
+  Building/StairwellBuilder Soviet stairwell: marches, landings, flat doors, lift, chute, mailboxes
+  Building/LiftBuilder      complete lift (shaft, cabin, landings), reused by stairwells and the test tower
+  Building/FlatDoorBuilder  dermantin flat door with number plate, peephole, bell
+  Util/Teleport          fade + stream-in + move character
   Equipment/ToolFactory  builds the Tool models
   Util/                  RateLimiter, Validation, Sfx
   Dev/TestSceneBuilder   test 9-storey block (turn off with Config.Dev.BuildTestScene)
@@ -52,6 +59,7 @@ src/server/      -> ServerScriptService.Server
   Dev/TestShopBuilder    grocery shop, ice-cream kiosk and pharmacy kiosk
   Dev/TestParkingBuilder dealership, parking lot with 4 spots, a long test road
   Dev/TestEquipmentBuilder sports kiosk, fishing pond with a pier, fish stall
+  Dev/TestStairwellBuilder  a city-style entrance "test-a/3" (flats 73–108, 9 floors, lift) on the test block
 src/client/      -> StarterPlayer.StarterPlayerScripts.Client
   Main.client.luau       LocalScript: bootstrap
   Controllers/           DataController, HudController, KeyRingController,
@@ -275,8 +283,37 @@ When map data exists, the dev test scene isn't built, because it would overlap t
 | 5 | Find a 9-storey block | 9 window bands, about 26 m tall (≈ 90 studs) |
 | 6 | A missing or wrong address in game | fix it **in OpenStreetMap** (that helps everyone), then re-run the script |
 
+**Working city entrances**
+- **Which entrances work:** every OSM `entrance=*` node on an apartment block (panel typologies) becomes a real `Entrance` at its real position. That means the heavy door with closer and maglock, a VIZOR or METRON intercom, and a key reader. Each one is registered through the normal `EntranceRegistry`, `DoorService` and `IntercomService`. Other buildings get a decorative door.
+- **Flats per entrance** come from `addr:flats`, e.g. "1-36". When OSM doesn't have it, they're **estimated**: entrances in `ref` order, 4 flats per floor. The model then carries `FlatsSource = "estimated"`. The "Під'їзд N · кв. X–Y" plate is only shown with real OSM tags.
+- **Going inside:** open the door with the intercom (the owner presses "open") or your key, then step through. You're teleported into that entrance's **instanced stairwell**, built on demand in a pocket slot like the flat interiors.
+- **Stairwell, per storey:**
+  - two stair flights with a half-landing in between
+  - a terrazzo landing with green oil paint on the lower walls
+  - a bare bulb
+  - up to 6 flat doors (working `ApartmentDoor`s: walk in if it's yours, ring the bell otherwise)
+  - a window
+- **Building-wide:** a stencilled floor number; on 9+ floors, a garbage chute with a hatch on every half-landing; on 6+ floors, a **complete Soviet lift** behind the back wall, with call buttons and ЗАНЯТО lamps. The lift is now built by `LiftBuilder`, shared with the test tower. Mailboxes on the ground floor.
+- **Leaving:** the inside door or the green exit button takes you back to the street, and the street door swings open behind you.
+- **Cleanup:** a stairwell is removed after 90 s with nobody inside it, in its lift, or in one of its flats. Lifts and flat doors unregister cleanly when it's removed, so it can be rebuilt later.
+- **Intercom brand:** VIZOR or METRON is assigned per entrance by a stable hash for now. Set the real one in `Config.Entrances.BrandOverrides` once photos show it.
+- **City service point:** a temporary ЖЕК, key-cutting kiosk, car dealer and two parking spots next to the spawn, so flats and keys can be bought in the city.
+
+**How to test (no map data needed):** there's a city-style entrance on the **east end wall of the test block**, «Під'їзд 3 · кв. 73–108», with a METRON panel, 9 floors and a lift.
+
+| # | Test | Expected |
+|---|---|---|
+| 1 | ЖЕК → `test-a/3` → flat 80 | an RFID key "Кв. 80 · test-a/3" in your key ring |
+| 2 | Hold the key → reader (F) | door unlocks and swings open; walk through → fade → you're in the ground-floor lobby |
+| 3 | Look around | mailboxes, green lower walls, floor numbers, flat doors 73–76 on floor 1 |
+| 4 | Lift call button → ride to 2 | flat 80 is on floor 2 (4 per floor); its door lets you straight in |
+| 5 | Walk the stairs to 9 | marches with a half-landing between each floor; garbage chute hatches; flats up to 108 |
+| 6 | Ground floor → Вийти (door or green button) | back on the street, and the street door opens behind you |
+| 7 | 2 players: P2 dials 80 on the panel while P1 is anywhere | P1 answers and presses "open" → the door opens → P2 walks in |
+| 8 | Leave for 90 s | Explorer: Workspace.Stairwells is emptied; entering again rebuilds it |
+| 9 | With map data | the same works on every mapped entrance of every apartment block in Pivdenne |
+
 **Still to come in Phase 2:**
-- Entrances that work like the test entrances: the city entrances are currently decorative doors. The next step generates a real `Entrance` (intercom + door) at each OSM entrance, leading into an **instanced stairwell** (like the apartment interiors) with the Soviet lift and an `ApartmentDoor` for each flat in `addr:flats`.
 - The sea and coastline (`natural=coastline` → Terrain water).
 - Facade templates with balconies.
 - Courtyard props: playgrounds, benches, garages.
@@ -323,7 +360,7 @@ When map data exists, the dev test scene isn't built, because it would overlap t
 ## 10. Roadmap
 
 - **Phase 1 (done):** data, entrances, doors, intercoms, keys, flats, kiosks.
-- **Phase 2 (in progress):** done: OSM converter, city builder, real address plates, entrances, roads, areas, POI labels. Next: working entrances with instanced stairwells, lifts and flat doors, the coastline, facade templates, courtyard props.
+- **Phase 2 (in progress):** done: OSM converter, city builder, real address plates, roads, areas, POI labels, working entrances with instanced stairwells, lifts and flats. Next: the coastline, facade templates, courtyard props.
 - **Phase 3 (done):** Soviet elevator system.
 - **Phase 4 (done):** apartments (instanced interiors, doorbell, fridge) and shops (catalogues, tills, inventory). Next: a "2k" layout, furniture you can buy and place, a way to earn money (jobs), and shop opening hours with a day/night cycle.
 - **Phase 5 (done):** vehicles. Next: fuel and petrol stations, garages in courtyards (tag `CarSpawn` inside a garage), traffic/NPC cars, damage.
@@ -341,6 +378,9 @@ When map data exists, the dev test scene isn't built, because it would overlap t
 - Lifts in Yuzhne: which plant made them (Karacharovo/KMZ, Mogilev/MOGILEVLIFTMASH, Shcherbinka?), and whether 1980s blocks have **automatic sliding shaft doors** rather than the hinged ones you asked for. Hinged manual shaft doors are typical of older lifts. Also the cabin size, the panel layout (one or two button columns, СТОП/ВИКЛИК labels in Russian or Ukrainian), the wall finish, and whether a lift stops at every floor or only at half-landings.
 - Address plate design in Yuzhne: colours, size, height, which corner, and whether one or both street-facing corners have one. The defaults are white on dark blue, 60 × 40 cm, 3 m up (`Config.Map.Plate`).
 - OSM coverage: how many buildings have `building:levels` and `addr:*`, and whether entrances are mapped. The converter prints these numbers; anything missing is best fixed directly in OSM.
+- Stairwells in Yuzhne: number of flats per landing, which side the lift is on, whether there's a garbage chute, wall colours, and whether there are ground-floor flats or a raised ground floor.
+- Where the real ЖЕК / housing office and key-cutting kiosks are (the spawn service point is temporary).
+- Which intercom brand is on which entrance (`Config.Entrances.BrandOverrides`).
 - Flat layouts in Yuzhne's panel series: room sizes, combined or separate bathroom, glazed or open balconies, and flats per floor. Please send floor plans or photos.
 - Real shop names: these get parody names unless you confirm otherwise.
 

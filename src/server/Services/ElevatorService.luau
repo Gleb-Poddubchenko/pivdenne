@@ -771,6 +771,16 @@ local function prepare(inst: Instance)
 	inst:SetAttribute("Floor", e.Floor)
 	inst:SetAttribute("CabinRequests", "")
 	elevators[id] = e
+	-- Lifts inside instanced stairwells are destroyed and rebuilt: free the id and
+	-- wake the controller loop so it exits.
+	inst.Destroying:Once(function()
+		if elevators[id] == e then
+			elevators[id] = nil
+		end
+		task.defer(function()
+			e.Signal:Fire() -- after destruction, so the loop sees Model.Parent == nil
+		end)
+	end)
 
 	local startBroken = inst:GetAttribute("OutOfService") == true
 		or (inst:GetAttribute("RandomOutOfService") ~= false and math.random() < Config.Elevator.OutOfServiceChance)

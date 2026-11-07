@@ -21,6 +21,8 @@ local Config = require(Shared:WaitForChild("Config"))
 
 local Geometry = require(script.Parent.Geometry)
 local AddressPlates = require(script.Parent.AddressPlates)
+local EntrancePlanner = require(script.Parent.Parent.Building.EntrancePlanner)
+local EntranceBuilder = require(script.Parent.Parent.Building.EntranceBuilder)
 
 local M = Config.Meters
 local FLOOR_H = M(2.8)
@@ -309,8 +311,16 @@ local function buildBuilding(parent: Instance, b: any)
 	end
 
 	if Config.Map.EntranceDetails and b.en then
-		for _, e in b.en do
-			entranceDetail(model, e, h)
+		-- Apartment blocks get working entrances (intercom, door, stairwell, lift,
+		-- flats); everything else a decorative door.
+		local plans = EntrancePlanner.Plan(b)
+		for i, e in b.en do
+			local plan = plans[i]
+			if plan then
+				EntranceBuilder.Build(model, plan :: any)
+			else
+				entranceDetail(model, e, h)
+			end
 		end
 	end
 

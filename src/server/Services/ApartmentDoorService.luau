@@ -227,6 +227,12 @@ local function register(inst: Instance)
 		OutsideCFrame = CFrame.lookAt(front.Position, front.Position + door.CFrame.LookVector),
 	}
 	doors[aptKey] = d
+	-- Doors inside instanced stairwells come and go; free the slot when removed.
+	inst.Destroying:Once(function()
+		if doors[aptKey] == d then
+			doors[aptKey] = nil
+		end
+	end)
 
 	local label = ("Квартира %d"):format(apt)
 	makePrompt(door, "Увійти", label, Enum.KeyCode.E).Triggered:Connect(function(player)

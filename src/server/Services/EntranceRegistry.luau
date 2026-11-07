@@ -75,6 +75,7 @@ local function buildPanelGui(panel: BasePart, brand: Brands.Brand): TextLabel
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	gui.PixelsPerStud = 100
 	gui.LightInfluence = 0.4
+	gui.MaxDistance = 60 -- hundreds of panels in the city: only render nearby ones
 	gui.Parent = panel
 
 	local bg = Instance.new("Frame")

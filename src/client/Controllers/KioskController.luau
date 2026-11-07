@@ -2,6 +2,7 @@
 -- KioskController: key-copy kiosk and housing office (ЖЕК) windows.
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -128,7 +129,20 @@ local function openHousingOffice()
 
 	-- Quick-pick buttons for entrances currently streamed in.
 	UiKit.label("Під'їзди поруч:", { LayoutOrder = 5, TextXAlignment = Enum.TextXAlignment.Left, Parent = body })
-	for i, inst in CollectionService:GetTagged("Entrance") do
+	-- The city has hundreds of entrances: list the 12 nearest streamed-in ones.
+	local root = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	local origin = if root and root:IsA("BasePart") then root.Position else Vector3.zero
+	local nearby = {}
+	for _, inst in CollectionService:GetTagged("Entrance") do
+		if inst:IsA("Model") then
+			table.insert(nearby, { inst = inst, d = (inst:GetPivot().Position - origin).Magnitude })
+		end
+	end
+	table.sort(nearby, function(a, b)
+		return a.d < b.d
+	end)
+	for i = 1, math.min(#nearby, 12) do
+		local inst = nearby[i].inst
 		local id = inst:GetAttribute("EntranceId")
 		if typeof(id) == "string" then
 			local b = UiKit.button(("%s · кв. %s–%s"):format(id, tostring(inst:GetAttribute("AptFrom")), tostring(inst:GetAttribute("AptTo"))), {

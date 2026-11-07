@@ -179,6 +179,25 @@ local Config = {
 		Catch = { fish_goby = 50, fish_sprat = 25, fish_horse = 15, fish_mullet = 8, fish_flounder = 2 } :: { [string]: number },
 	},
 
+	Entrances = {
+		-- City entrances (from OSM entrance=* nodes on apartment blocks).
+		Functional = true, -- real Entrance (door + intercom + reader) leading into an instanced stairwell
+		DefaultFlatsPerFloor = 4, -- used when OSM has no addr:flats for the entrance
+		LiftMinFloors = 6, -- Soviet blocks of 6+ floors have a lift (5-storeys don't)
+		ChuteMinFloors = 9, -- garbage chute (сміттєпровід) in 9+ storey blocks
+		-- EntranceId -> "Vizor" | "Metron". Everything else is assigned by a stable hash
+		-- until photos tell us which panel each entrance really has.
+		BrandOverrides = {} :: { [string]: string },
+	},
+
+	Stairwells = {
+		Origin = Vector3.new(-30000, 3000, 30000), -- pocket area, separate from flat interiors
+		Spacing = 70,
+		SlotsPerRow = 20,
+		EmptyLifetime = 90, -- seconds before an unused stairwell is removed
+		ReenterCooldown = 4, -- after leaving, the open door won't pull you straight back in
+	},
+
 	Map = {
 		-- City generated from OpenStreetMap (ServerStorage.MapData, made by tools/osm_to_roblox.py).
 		BuildAtRuntime = true, -- build on server start if Workspace.City is missing (or bake it in Studio)
