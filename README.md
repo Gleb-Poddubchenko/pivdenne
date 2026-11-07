@@ -319,6 +319,19 @@ When map data exists, the dev test scene isn't built, because it would overlap t
 | 8 | Leave for 90 s | Explorer: Workspace.Stairwells is emptied; entering again rebuilds it |
 | 9 | With map data | the same works on every mapped entrance of every apartment block in Pivdenne |
 
+**Current real data (downloaded 2026-11-07, OSM API, 4 tiles)**
+
+| | |
+|---|---|
+| buildings mapped in OSM | 469: 93 apartment blocks, 103 with a floor count (54 nine-storey, 13 ten-storey, 7 sixteen-storey) |
+| real addresses → plates | 108 buildings, 144 plates, 36 streets (вул. Хіміків, просп. Миру, просп. Григорівського Десанту, вул. Будівельників, вул. Тараса Шевченка, Приморська вул. …) |
+| entrances | 4 mapped in OSM; **245 estimated** (one per ~24 m section, courtyard side) so every apartment block has working під'їзди |
+| roads / areas / POIs | 589 / 138 / 117 |
+| details | coastline (sea side verified: all 46 nearby buildings are on the land side), 5 714 trees, 1 332 lamps (generated, none mapped), 17 zebra crossings, 4 bus stops |
+| skipped | 1 malformed value: way 970273977 `addr:street` holds a whole address from the village of Sychavka. Fix it in OSM. |
+
+**OSM coverage is the limit.** Many private houses and some blocks aren't mapped, and most buildings have no floor count; apartment blocks without one default to 5 storeys. Adding `building:levels`, `addr:*` and `entrance=*` (with `ref` and `addr:flats`) on openstreetmap.org, then re-running `bash tools/fetch_osm.sh`, improves the game directly. That includes plates, real flat numbers and entrance positions.
+
 **Realism pass: details**
 
 Real OSM objects are used wherever they're mapped. Generated detail only fills gaps, is reproducible (seeded by position), and never lands on buildings or roads.

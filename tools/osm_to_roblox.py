@@ -35,7 +35,7 @@ FLOOR_HEIGHT_M = 2.8
 # Centre of the Pivdenne city boundary (OSM relation 3606547, via Nominatim).
 ORIGIN_LAT = 46.6225029
 ORIGIN_LON = 31.0994897
-CHUNK_SIZE = 512  # studs
+CHUNK_SIZE = 1024  # studs
 MAX_MODULE_BYTES = 180_000  # stay well under Roblox's script source limits
 
 ROAD_WIDTH_M = {
@@ -290,6 +290,56 @@ def abbreviate_street(name):
     return name
 
 
+SUSPICIOUS = []  # malformed OSM values we refuse to print on plates (reported, fix them in OSM)
+SECTION_M = 24  # typical Soviet panel-block section length (one entrance per section)
+
+
+def generate_entrances(b, major_segments):
+    """Estimated entrances for apartment blocks with none mapped in OSM.
+
+    One per ~24 m section on the long walls of the courtyard side: the side
+    opposite the address plates (street side), else the side facing away from the
+    nearest main road. Marked kind="estimated" and given no ref, so no invented
+    "Під'їзд N" plate is shown.
+    """
+    pts = b["p"]
+    n = len(pts)
+    edges = []
+    for i in range(n):
+        a, c = pts[i], pts[(i + 1) % n]
+        L = dist(a, c)
+        if L >= 16 * STUDS_PER_METER:
+            dx, dz = (c[0] - a[0]) / L, (c[1] - a[1]) / L
+            edges.append((a, c, L, dz, -dx))  # outward normal
+    if not edges:
+        return []
+    if b.get("plates"):
+        snx, snz = b["plates"][0][2], b["plates"][0][3]
+    else:
+        cx, cz = centroid(pts)
+        best = None
+        for sa, sb in major_segments:
+            d, q = seg_point_distance((cx, cz), sa, sb)
+            if best is None or d < best[0]:
+                best = (d, q)
+        if best:
+            L = dist(best[1], (cx, cz)) or 1
+            snx, snz = (best[1][0] - cx) / L, (best[1][1] - cz) / L
+        else:
+            snx, snz = 0.0, -1.0
+    court = [e for e in edges if e[3] * snx + e[4] * snz < -0.3]
+    if not court:
+        court = [max(edges, key=lambda e: e[2])]
+    out = []
+    for a, c, L, nx, nz in court:
+        sections = max(1, round(L / (SECTION_M * STUDS_PER_METER)))
+        for k in range(sections):
+            t = (k + 0.5) / sections
+            out.append({"x": a[0] + (c[0] - a[0]) * t, "z": a[1] + (c[1] - a[1]) * t,
+                        "nx": nx, "nz": nz, "ref": "", "flats": "", "kind": "estimated"})
+    return out
+
+
 def build_features(nodes, ways, relations):
     def ring_of(refs):
         pts = []
@@ -321,6 +371,10 @@ def build_features(nodes, ways, relations):
 
     named_segments = {}
     all_segments = []
+    major_segments = [
+        (a, b) for r in roads if r["t"] in ("trunk", "primary", "secondary", "tertiary", "residential", "unclassified")
+        for a, b in zip(r["p"], r["p"][1:])
+    ]
     for r in roads:
         if r["t"] in ("footway", "path", "steps", "cycleway", "track"):
             continue
@@ -381,6 +435,9 @@ def build_features(nodes, ways, relations):
 
         street = tags.get("addr:street")
         housenumber = tags.get("addr:housenumber")
+        if street and ("," in street or len(street) > 60):
+            SUSPICIOUS.append(f"way {oid}: addr:street={street!r}")
+            street = None
         if not housenumber:
             for p, atags in addr_points:
                 if point_in_polygon(p, pts):
@@ -434,6 +491,9 @@ def build_features(nodes, ways, relations):
             b["plates"] = choose_plates(pts, named_segments.get(street) or all_segments)
             stats["plates"] += len(b["plates"])
             stats["with_address"] += 1
+        if not entrances and typ.startswith("panel"):
+            b["en"] = generate_entrances(b, major_segments)
+            stats["entrances_estimated"] = stats.get("entrances_estimated", 0) + len(b["en"])
         stats["buildings"] += 1
         stats["with_levels"] += 1 if levels else 0
         stats["entrances"] += len(entrances)
@@ -716,6 +776,7 @@ def main():
     ap.add_argument("inputs", nargs="+", help=".osm XML files (merged)")
     ap.add_argument("--out", default="map/data", help="output folder for Luau modules")
     ap.add_argument("--max-trees", type=int, default=15000, help="cap on generated (not real) trees")
+    ap.add_argument("--margin", type=float, default=450, help="metres of map kept around the outermost buildings")
     args = ap.parse_args()
 
     nodes, ways, relations = parse(args.inputs)
@@ -723,9 +784,38 @@ def main():
     if not buildings and not roads:
         sys.exit("No buildings or roads found: is this the right .osm file?")
 
-    xs = [p[0] for b in buildings for p in b["p"]] + [p[0] for r in roads for p in r["p"]]
-    zs = [p[1] for b in buildings for p in b["p"]] + [p[1] for r in roads for p in r["p"]]
-    bounds = (min(xs), min(zs), max(xs), max(zs))
+    # The city = its buildings plus a margin. OSM ways that merely touch the bbox
+    # (long trunk roads, the coastline) are clipped to it, so the map, ground and
+    # module count stay city-sized.
+    margin = args.margin * STUDS_PER_METER
+    xs = [p[0] for b in buildings for p in b["p"]] or [p[0] for r in roads for p in r["p"]]
+    zs = [p[1] for b in buildings for p in b["p"]] or [p[1] for r in roads for p in r["p"]]
+    bounds = (min(xs) - margin, min(zs) - margin, max(xs) + margin, max(zs) + margin)
+
+    def inside(p):
+        return bounds[0] <= p[0] <= bounds[2] and bounds[1] <= p[1] <= bounds[3]
+
+    def clip_lines(items, key="p"):
+        out = []
+        for it in items:
+            run = []
+            pts = it[key]
+            for i, q in enumerate(pts):
+                keep = inside(q) or (i > 0 and inside(pts[i - 1])) or (i + 1 < len(pts) and inside(pts[i + 1]))
+                if keep:
+                    run.append(q)
+                elif len(run) >= 2:
+                    out.append(dict(it, **{key: run}))
+                    run = []
+                else:
+                    run = []
+            if len(run) >= 2:
+                out.append(dict(it, **{key: run}))
+        return out
+
+    roads = clip_lines(roads)
+    areas = [a for a in areas if inside(centroid(a["p"]))]
+    pois = [p for p in pois if inside((p["x"], p["z"]))]
 
     # spawn: the point on a main road closest to the origin
     best = None
@@ -738,11 +828,23 @@ def main():
     spawn = best[1] if best else (0, 0)
 
     details = osm_details.extract(nodes, ways, buildings, roads, project, max_trees=args.max_trees)
+    for kind in list(details):
+        if kind in ("co", "rl"):
+            details[kind] = clip_lines(details[kind])
+            for f in details[kind]:
+                f["x"], f["z"] = f["p"][0]
+        else:
+            details[kind] = [f for f in details[kind] if inside((f["x"], f["z"]))]
     for kind, feats in details.items():
         stats["d_" + kind] = len(feats)
     modules, streets = write_modules(args.out, buildings, roads, areas, pois, stats, bounds, spawn, details)
     print(f"buildings: {stats['buildings']} (with address {stats['with_address']}, with levels {stats['with_levels']})")
-    print(f"address plates: {stats['plates']}, entrances: {stats['entrances']}")
+    print(f"address plates: {stats['plates']}, entrances: {stats['entrances']} mapped in OSM, "
+          f"{stats.get('entrances_estimated', 0)} estimated on apartment blocks without mapped entrances")
+    if SUSPICIOUS:
+        print(f"skipped {len(SUSPICIOUS)} malformed OSM value(s) (fix them on openstreetmap.org):")
+        for line in SUSPICIOUS:
+            print("   " + line)
     print(f"roads: {len(roads)}, areas: {len(areas)}, POIs: {len(pois)}, streets: {len(streets)}")
     print("details: " + ", ".join(f"{k} {len(v)}" for k, v in details.items())
           + "  (co=coastline pieces, rl=rail, tr=trees, lp=lamps, cw=crossings, bs=bus stops, bn=benches, wc=bins)")
