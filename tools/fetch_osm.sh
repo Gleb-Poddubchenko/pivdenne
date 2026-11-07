@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Download OpenStreetMap data for Yuzhne/Pivdenne and convert it for Roblox.
+# Download OpenStreetMap data and elevation tiles for Yuzhne/Pivdenne and convert
+# them for Roblox.
 #
 #   bash tools/fetch_osm.sh          # download + convert
 #
@@ -37,5 +38,8 @@ for i in "${!tiles[@]}"; do
   sleep 2 # be polite to the OSM API
 done
 
-python3 tools/osm_to_roblox.py "${files[@]}" --out map/data
+# Elevation (hills, valleys, coastal cliffs): AWS Terrain Tiles, a little larger than the OSM box.
+python3 tools/dem.py download 31.055 46.598 31.135 46.660
+
+python3 tools/osm_to_roblox.py "${files[@]}" --out map/data --dem data/dem
 echo "Done. Sync with Rojo (map/data -> ServerStorage.MapData) and press Play."

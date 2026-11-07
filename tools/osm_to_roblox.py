@@ -29,6 +29,7 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import osm_details  # noqa: E402  (street-level detail: sea, trees, lamps, crossings, ...)
+import dem  # noqa: E402  (elevation grid from terrain tiles)
 
 STUDS_PER_METER = 3.5
 FLOOR_HEIGHT_M = 2.8
@@ -82,6 +83,11 @@ def meters_per_degree(lat):
 
 
 M_LAT, M_LON = meters_per_degree(ORIGIN_LAT)
+
+
+def unproject(x, z):
+    """Inverse of project(): studs -> (lat, lon)."""
+    return ORIGIN_LAT - z / (M_LAT * STUDS_PER_METER), ORIGIN_LON + x / (M_LON * STUDS_PER_METER)
 
 
 def project(lat, lon):
@@ -698,7 +704,29 @@ DETAIL_KINDS = ("co", "rl", "tr", "lp", "cw", "bs", "bn", "wc")
 KINDS = ("a", "r", "b", "poi") + DETAIL_KINDS
 
 
-def write_modules(out_dir, buildings, roads, areas, pois, stats, bounds, spawn, details=None):
+def write_height_modules(out_dir, grid, grid_studs, header):
+    """Height grid as Luau modules (rows split so each module stays small)."""
+    names = []
+    rows_per = max(1, int(MAX_MODULE_BYTES // (grid["cols"] * 5 + 10)))
+    for k, start in enumerate(range(0, grid["rows"], rows_per)):
+        name = f"Height_{k + 1}"
+        end = min(grid["rows"], start + rows_per)
+        with open(os.path.join(out_dir, name + ".luau"), "w", encoding="utf-8") as fh:
+            fh.write(header)
+            fh.write(f"return {{first={start + 1},\nh={{\n")
+            fh.write(",\n".join(",".join(str(round(v * STUDS_PER_METER)) for v in grid["h"][r]) for r in range(start, end)))
+            fh.write("\n},\nmat={\n")
+            fh.write(",\n".join(lua_str(grid["mat"][r]) for r in range(start, min(end, grid["rows"] - 1))))
+            fh.write("\n}}\n")
+        names.append(name)
+    with open(os.path.join(out_dir, "Cliffs.luau"), "w", encoding="utf-8") as fh:
+        fh.write(header)
+        fh.write("return {\n" + ",\n".join(
+            "{" + ",".join(num(v) for v in (a[0], a[1], b[0], b[1], top)) + "}" for a, b, top in grid.get("cliffs", [])) + "\n}\n")
+    return names
+
+
+def write_modules(out_dir, buildings, roads, areas, pois, stats, bounds, spawn, details=None, grid=None, grid_studs=0):
     os.makedirs(out_dir, exist_ok=True)
     for f in os.listdir(out_dir):
         if f.endswith(".luau"):
@@ -767,6 +795,10 @@ def write_modules(out_dir, buildings, roads, areas, pois, stats, bounds, spawn, 
         fh.write("\tStats = {" + ",".join(f"{k}={v}" for k, v in stats.items()) + "},\n")
         fh.write("\tChunks = {" + ",".join(lua_str(n) for n in module_names) + "},\n")
         fh.write("\tStreets = {" + ",".join(lua_str(s) for s in street_names) + "},\n")
+        if grid:
+            hmods = write_height_modules(out_dir, grid, grid_studs, header)
+            fh.write(f"\tHeight = {{Grid={num(grid_studs)},X0={num(grid['x0'])},Z0={num(grid['z0'])},"
+                     f"Cols={grid['cols']},Rows={grid['rows']},Modules={{" + ",".join(lua_str(n) for n in hmods) + "}},\n")
         fh.write("}\n")
     return module_names, street_names
 
@@ -777,6 +809,8 @@ def main():
     ap.add_argument("--out", default="map/data", help="output folder for Luau modules")
     ap.add_argument("--max-trees", type=int, default=15000, help="cap on generated (not real) trees")
     ap.add_argument("--margin", type=float, default=450, help="metres of map kept around the outermost buildings")
+    ap.add_argument("--dem", default="", help="folder of terrarium elevation tiles (tools/dem.py download ...)")
+    ap.add_argument("--dem-grid", type=float, default=24, help="metres between height samples")
     args = ap.parse_args()
 
     nodes, ways, relations = parse(args.inputs)
@@ -837,7 +871,51 @@ def main():
             details[kind] = [f for f in details[kind] if inside((f["x"], f["z"]))]
     for kind, feats in details.items():
         stats["d_" + kind] = len(feats)
-    modules, streets = write_modules(args.out, buildings, roads, areas, pois, stats, bounds, spawn, details)
+    grid, grid_studs = None, 0
+    if args.dem:
+        grid_studs = args.dem_grid * STUDS_PER_METER
+        grid = dem.build_grid(dem.Elevation(args.dem), bounds, grid_studs, unproject, areas, point_in_polygon)
+        flat = [v for row in grid["h"] for v in row]
+        steepest = 0.0
+        for r in range(grid["rows"]):
+            for c in range(grid["cols"] - 1):
+                steepest = max(steepest, abs(grid["h"][r][c + 1] - grid["h"][r][c]) / args.dem_grid)
+        stats["elev_max_m"] = round(max(flat), 1)
+
+        # Coastal cliffs: where the land 70 m inland from the coastline stands more
+        # than 8 m high, the shore is a cliff (Pivdenne's loess cliffs over narrow
+        # beaches). The grid can't show a ~15 m wide face, so the segments are
+        # written out and CityBuilder cuts beach + cliff into the terrain.
+        def grid_h(x, z):
+            cf = (x - grid["x0"]) / grid_studs
+            rf = (z - grid["z0"]) / grid_studs
+            c0, r0 = int(math.floor(cf)), int(math.floor(rf))
+            if not (0 <= c0 < grid["cols"] - 1 and 0 <= r0 < grid["rows"] - 1):
+                return 0.0
+            fx, fz = cf - c0, rf - r0
+            hh = grid["h"]
+            top = hh[r0][c0] * (1 - fx) + hh[r0][c0 + 1] * fx
+            bot = hh[r0 + 1][c0] * (1 - fx) + hh[r0 + 1][c0 + 1] * fx
+            return top * (1 - fz) + bot * fz
+
+        cliffs = []
+        for f in details.get("co", []):
+            pts = f["p"]
+            for a, b in zip(pts, pts[1:]):
+                L = dist(a, b)
+                if L < 1:
+                    continue
+                # land is LEFT of the coastline direction: (dz, -dx) in x,z
+                lx, lz = (b[1] - a[1]) / L, -(b[0] - a[0]) / L
+                mx, mz = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+                top = max(grid_h(mx + lx * d * STUDS_PER_METER, mz + lz * d * STUDS_PER_METER) for d in (50, 70, 90))
+                if top >= 8:
+                    cliffs.append((a, b, top * STUDS_PER_METER))
+        grid["cliffs"] = cliffs
+        print(f"coastal cliffs: {len(cliffs)} segments, up to {max((c[2] for c in cliffs), default=0) / STUDS_PER_METER:.0f} m high")
+        print(f"elevation: {grid['cols']}x{grid['rows']} grid every {args.dem_grid:g} m, "
+              f"0 .. {max(flat):.1f} m, steepest slope {math.degrees(math.atan(steepest)):.0f} deg")
+    modules, streets = write_modules(args.out, buildings, roads, areas, pois, stats, bounds, spawn, details, grid, grid_studs)
     print(f"buildings: {stats['buildings']} (with address {stats['with_address']}, with levels {stats['with_levels']})")
     print(f"address plates: {stats['plates']}, entrances: {stats['entrances']} mapped in OSM, "
           f"{stats.get('entrances_estimated', 0)} estimated on apartment blocks without mapped entrances")

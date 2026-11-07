@@ -9,6 +9,7 @@ default.project.json                      Rojo project (also turns on StreamingE
 tools/fetch_osm.sh        download OSM data for Pivdenne and convert it
 tools/osm_to_roblox.py    OSM XML -> Luau map chunks (buildings, addresses, plates, roads, areas, POIs)
 tools/osm_details.py      street-level detail: coastline, trees, lamps, crossings, bus stops, benches, bins, rail
+tools/dem.py              elevation: downloads AWS Terrain Tiles (SRTM), samples the height grid
 map/data/        -> ServerStorage.MapData             (generated Luau chunks + Index)
 src/shared/      -> ReplicatedStorage.Shared          (ModuleScripts)
   Config.luau            scale (1 m = 3.5 studs), prices, timings, sound ids
@@ -47,6 +48,8 @@ src/server/      -> ServerScriptService.Server
     AddressService       real-address search from OSM data (for the phone)
   City/MapData           read-only access to the generated chunks
   City/StreetDetails     sea, railway, trees, street lamps, zebras, bus shelters, benches, bins
+  City/Height            ground height anywhere (same triangles as the terrain), cliff segments
+  City/TerrainBuilder    sculpts the real relief: heightmap, materials, loess cliffs over sand beaches
   City/Facade            real OSM colours/materials, plinths, parapets, balconies, antennas, lift rooms
     LightingService      day/night with the real sun path at 46.62°N, sea haze
   Building/EntrancePlanner  which OSM entrances become working ones, flat ranges (addr:flats or estimated)
@@ -361,8 +364,24 @@ Everything is switchable in `Config.Map` (`Trees`, `StreetLamps`, `Balconies`, `
 
 Set `Lighting.ClockTime = 21` in the server view: the lamps come on near you.
 
+**Hills and coastal cliffs (real elevation)**
+- **Source:** the public AWS Terrain Tiles (terrarium PNGs, zoom 14, SRTM-based, ~30 m). `tools/dem.py` downloads the 20 tiles over Pivdenne and decodes them with the standard library. The converter samples a grid every 24 m on the map's own projection, with one light smoothing pass: `--dem data/dem`, spacing set by `--dem-grid`.
+- **What the data shows:**
+  - the city sits on a **plateau of about 32–46 m** (the spawn is at 32.5 m)
+  - a low valley runs north–south toward the estuary
+  - the land drops to the Black Sea in the south
+- **Terrain:** every grid cell is two `FillWedge` triangles, thick enough to reach the sea floor. Materials come from OSM areas: grass in parks, leafy ground in woods, sand on beaches, asphalt and concrete for car parks and garages. Anything steeper than 30° becomes yellow-brown loess.
+- **Coastal cliffs:** the grid smooths cliffs to at most 12°, so the converter finds coastline segments where the land 50–90 m inland stands higher than 8 m. That's **39 segments, up to 29 m high**. Along those, `TerrainBuilder` cuts a **sand beach** (18 m) at the waterline and raises a **near-vertical loess cliff** (14 m run) to the plateau. Both widths are set in `Config.Map.CliffBeach` / `CliffRun`.
+- **Everything sits on the ground:** `Height.At()` interpolates on exactly the triangles the terrain uses.
+  - buildings stand on their lowest corner and the hillside covers the rest (median ground drop under a footprint 0.8 m, max 8 m)
+  - roads are subdivided every 6 m and follow the slope
+  - plates, entrances, trees, lamps, benches, shelters, counters, labels, the spawn and the service point use the ground height at their own spot
+  - lakes sit at their lowest shore level
+  - small car parks are laid flat at mid height
+- **Turning it off:** without elevation data, or with `Config.Map.TerrainGround = false`, the map is flat as before.
+
 **Still to come in Phase 2:**
-- Terrain elevation: OSM has no heights. The coastal slope and cliffs would need an elevation source (e.g. SRTM) and another allowed host. (`natural=coastline` → Terrain water).
+- Finer cliffs where photos show them (ravines, landslide terraces); the cliff widths are estimates. (`natural=coastline` → Terrain water).
 - Facade templates with balconies.
 - Courtyard props: playgrounds, benches, garages.
 
@@ -425,6 +444,7 @@ Set `Lighting.ClockTime = 21` in the server view: the lamps come on near you.
 - Origin coordinates for the map projection, and the positions of landmarks: central square(s), the seaside promenade and beach access, the port and plant area, schools, markets, the bus station, main shops.
 - Lifts in Yuzhne: which plant made them (Karacharovo/KMZ, Mogilev/MOGILEVLIFTMASH, Shcherbinka?), and whether 1980s blocks have **automatic sliding shaft doors** rather than the hinged ones you asked for. Hinged manual shaft doors are typical of older lifts. Also the cabin size, the panel layout (one or two button columns, СТОП/ВИКЛИК labels in Russian or Ukrainian), the wall finish, and whether a lift stops at every floor or only at half-landings.
 - Street-level look: lamp pole types (concrete or metal), bus shelter design, tree species along the main streets (the generator mixes round crowns and poplars), balcony glazing share, building colours (OSM rarely tags `building:colour`).
+- The coastal cliffs: real height and steepness, beach width at their foot, and where there are ravines or concrete stairs down to the beach.
 - Address plate design in Yuzhne: colours, size, height, which corner, and whether one or both street-facing corners have one. The defaults are white on dark blue, 60 × 40 cm, 3 m up (`Config.Map.Plate`).
 - OSM coverage: how many buildings have `building:levels` and `addr:*`, and whether entrances are mapped. The converter prints these numbers; anything missing is best fixed directly in OSM.
 - Stairwells in Yuzhne: number of flats per landing, which side the lift is on, whether there's a garbage chute, wall colours, and whether there are ground-floor flats or a raised ground floor.

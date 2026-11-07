@@ -24,6 +24,8 @@ local AddressPlates = require(script.Parent.AddressPlates)
 local EntrancePlanner = require(script.Parent.Parent.Building.EntrancePlanner)
 local EntranceBuilder = require(script.Parent.Parent.Building.EntranceBuilder)
 local StreetDetails = require(script.Parent.StreetDetails)
+local Height = require(script.Parent.Height)
+local TerrainBuilder = require(script.Parent.TerrainBuilder)
 local Facade = require(script.Parent.Facade)
 
 local M = Config.Meters
@@ -155,7 +157,7 @@ local EQUIPMENT_KINDS: { [string]: boolean } = {
 
 local function counterFrame(poi: any): CFrame
 	local normal = Vector3.new(poi.nx or 0, 0, poi.nz or 0)
-	local pos = Vector3.new(poi.x, 0, poi.z)
+	local pos = Vector3.new(poi.x, Height.At(poi.x, poi.z), poi.z)
 	if normal.Magnitude < 0.5 then
 		normal = Vector3.new(0, 0, -1)
 	end
@@ -221,7 +223,7 @@ local function entranceDetail(parent: Instance, e: any, height: number)
 		return
 	end
 	normal = normal.Unit
-	local base = Vector3.new(e.x, 0, e.z)
+	local base = Vector3.new(e.x, Height.At(e.x, e.z), e.z)
 	local face = CFrame.lookAt(base, base + normal) -- LookVector = outward
 	local door = Geometry.Part(parent, "EntranceDoor", Vector3.new(M(1.0), M(2.1), 0.3), face * CFrame.new(0, M(1.05), -0.15),
 		Color3.fromRGB(74, 58, 46), Enum.Material.DiamondPlate)
@@ -276,12 +278,15 @@ local function buildBuilding(parent: Instance, b: any)
 	local color = Facade.ParseColour(b.bc) or pick(PALETTE[b.t] or PALETTE.other, b.id)
 	local roofColor = Facade.ParseColour(b.rc) or ROOF
 	local h: number = b.h
+	-- On a slope the building stands on its lowest corner; the hillside covers the rest.
+	local y0 = Height.Range(b.p)
+	model:SetAttribute("GroundY", y0)
 	local material = Facade.ParseMaterial(b.mat)
 		or (if b.t == "house" or b.t == "garage" then Enum.Material.Brick else Enum.Material.Concrete)
 
 	if b.rect then
 		local cx, cz, L, W, angle = b.rect[1], b.rect[2], b.rect[3], b.rect[4], b.rect[5]
-		local base = CFrame.new(cx, 0, cz) * CFrame.Angles(0, -angle, 0)
+		local base = CFrame.new(cx, y0, cz) * CFrame.Angles(0, -angle, 0)
 		Geometry.Part(model, "Body", Vector3.new(L, h, W), base * CFrame.new(0, h / 2, 0), color, material)
 		Geometry.Part(model, "Roof", Vector3.new(L + 0.4, 0.5, W + 0.4), base * CFrame.new(0, h + 0.25, 0), roofColor, Enum.Material.Slate)
 		if string.sub(b.t, 1, 5) == "panel" then
@@ -313,17 +318,18 @@ local function buildBuilding(parent: Instance, b: any)
 			if len > 0.05 then
 				local dir = edge / len
 				local inward = Vector3.new(-dir.Z, 0, dir.X)
-				local center = (a + c) / 2 + inward * (WALL_T / 2) + Vector3.new(0, h / 2, 0)
+				local center = (a + c) / 2 + inward * (WALL_T / 2) + Vector3.new(0, y0 + h / 2, 0)
 				Geometry.Part(model, "Wall", Vector3.new(len + WALL_T, h, WALL_T), CFrame.fromMatrix(center, dir, Vector3.yAxis), color, material)
 			end
 		end
-		Geometry.Polygon(model, p, b.tri, h + 0.25, 0.5, roofColor, Enum.Material.Slate)
+		Geometry.Polygon(model, p, b.tri, y0 + h + 0.25, 0.5, roofColor, Enum.Material.Slate)
 	end
 
 	-- Real address plates on the wall facing the street (positions computed offline).
 	if b.pl and b.sa and b.hn then
 		for _, pl in b.pl do
-			AddressPlates.Create(model, Vector3.new(pl[1], 0, pl[2]), Vector3.new(pl[3], 0, pl[4]), b.sa, b.hn, h)
+			local gy = Height.At(pl[1], pl[2])
+			AddressPlates.Create(model, Vector3.new(pl[1], gy, pl[2]), Vector3.new(pl[3], 0, pl[4]), b.sa, b.hn, h + y0 - gy)
 		end
 	end
 
@@ -335,6 +341,7 @@ local function buildBuilding(parent: Instance, b: any)
 			local plan = plans[i]
 			if plan then
 				local pl = plan :: any
+				pl.Y = Height.At(e.x, e.z)
 				EntranceBuilder.Build(model, pl)
 				local normal = Vector3.new(e.nx or 0, 0, e.nz or 0)
 				if normal.Magnitude > 0.5 then
@@ -346,7 +353,7 @@ local function buildBuilding(parent: Instance, b: any)
 						StreetDetails.Bench(model, pos.X, pos.Z, math.atan2(normal.Z, normal.X))
 					end
 					if pl.HasLift then
-						Facade.LiftRoom(model, Vector3.new(e.x, 0, e.z), normal, h, color)
+						Facade.LiftRoom(model, Vector3.new(e.x, 0, e.z), normal, y0 + h, color)
 					end
 				end
 			else
@@ -356,7 +363,7 @@ local function buildBuilding(parent: Instance, b: any)
 	end
 
 	if b.nm and (b.t == "public" or b.t == "commercial") then
-		addLabel(model, Vector3.new(b.p[1], h + 6, b.p[2]), b.nm)
+		addLabel(model, Vector3.new(b.p[1], y0 + h + 6, b.p[2]), b.nm)
 	end
 
 	model.Parent = parent
@@ -408,17 +415,17 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 	local b = index.Bounds
 	local size = 2048
 	local terrain = workspace.Terrain
-	if Config.Map.TerrainGround then
-		terrain:SetMaterialColor(Enum.Material.Ground, Color3.fromRGB(122, 126, 84))
-		terrain:SetMaterialColor(Enum.Material.Grass, Color3.fromRGB(104, 132, 70))
-		terrain.WaterColor = Color3.fromRGB(28, 92, 110) -- Black Sea green-blue
-		terrain.WaterWaveSize = 0.12
-		terrain.WaterTransparency = 0.6
-		terrain.WaterReflectance = 0.6
+	-- Real relief (hills, valleys, coastal cliffs) when elevation data exists.
+	local sculpted = Config.Map.TerrainGround and TerrainBuilder.Build(tick)
+	if Config.Map.TerrainGround and not sculpted then
+		TerrainBuilder.SetColours(terrain)
 	end
 	for gx = math.floor((b.minX - 400) / size), math.floor((b.maxX + 400) / size) do
 		for gz = math.floor((b.minZ - 400) / size), math.floor((b.maxZ + 400) / size) do
-			if Config.Map.TerrainGround then
+			if sculpted then
+				-- relief already built: just make sure the far margins have a floor
+				terrain:FillBlock(CFrame.new((gx + 0.5) * size, -Config.Map.SeaDepth - 6, (gz + 0.5) * size), Vector3.new(size, 4, size), Enum.Material.Ground)
+			elseif Config.Map.TerrainGround then
 				terrain:FillBlock(CFrame.new((gx + 0.5) * size, -2, (gz + 0.5) * size), Vector3.new(size, 4, size), Enum.Material.Ground)
 			else
 				Geometry.Part(ground, "Ground", Vector3.new(size, 2, size), CFrame.new((gx + 0.5) * size, -1, (gz + 0.5) * size),
@@ -441,38 +448,33 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 
 				for _, a in chunk.a do
 					local style = AREA_STYLE[a.t]
+					local lo, hi = Height.Range(a.p)
+					local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+					for i = 1, #a.p - 1, 2 do
+						minX, maxX = math.min(minX, a.p[i]), math.max(maxX, a.p[i])
+						minZ, maxZ = math.min(minZ, a.p[i + 1]), math.max(maxZ, a.p[i + 1])
+					end
+					local small = math.max(maxX - minX, maxZ - minZ) < M(60)
 					if a.t == "water" and Config.Map.TerrainGround then
-						Geometry.TerrainPolygon(a.p, a.tri, 0, Config.Map.SeaDepth, Enum.Material.Water)
+						-- lakes and ponds sit at their lowest shore level
+						Geometry.TerrainPolygon(a.p, a.tri, lo, Config.Map.SeaDepth, Enum.Material.Water)
+					elseif sculpted and not small then
+						-- big parks/beaches/forests are terrain materials (from the height grid)
 					elseif style then
-						Geometry.Polygon(chunkModel, a.p, a.tri, 0.03, 0.06, style[1] :: Color3, style[2] :: Enum.Material)
+						-- small hard surfaces (car parks, playgrounds) laid flat at their mid height
+						local y = if sculpted then (lo + hi) / 2 else 0
+						Geometry.Polygon(chunkModel, a.p, a.tri, y + 0.03, 0.06 + (hi - lo), style[1] :: Color3, style[2] :: Enum.Material)
 					end
 					tick()
 				end
 				for _, r in chunk.r do
 					local y = ROAD_Y[r.t] or 0.1
 					local minor = r.t == "footway" or r.t == "path" or r.t == "steps" or r.t == "cycleway" or r.t == "track"
-					Geometry.Polyline(chunkModel, r.p, r.w, y, 0.2,
+					local dashed = Config.Map.RoadMarkings and (r.t == "primary" or r.t == "secondary" or r.t == "tertiary" or r.t == "trunk")
+					-- roads follow the ground, subdivided every 6 m
+					Geometry.DrapedPolyline(chunkModel, r.p, r.w, y, 0.2,
 						if minor then Color3.fromRGB(150, 146, 140) else Color3.fromRGB(62, 62, 64),
-						if minor then Enum.Material.Pavement else Enum.Material.Asphalt)
-					if Config.Map.RoadMarkings and (r.t == "primary" or r.t == "secondary" or r.t == "tertiary" or r.t == "trunk") then
-						-- dashed centre line: 3 m dash, 6 m gap
-						local p = r.p
-						for i = 1, #p // 2 - 1 do
-							local a0 = Vector3.new(p[2 * i - 1], y + 0.11, p[2 * i])
-							local b0 = Vector3.new(p[2 * i + 1], y + 0.11, p[2 * i + 2])
-							local len = (b0 - a0).Magnitude
-							local dir = if len > 0 then (b0 - a0) / len else Vector3.zAxis
-							local d = M(1.5)
-							while d < len do
-								local pos = a0 + dir * d
-								local dash = Geometry.Part(chunkModel, "Marking", Vector3.new(0.4, 0.04, M(3)), CFrame.lookAt(pos, pos + dir), Color3.fromRGB(235, 235, 230))
-								dash.CanCollide = false
-								dash.CanQuery = false
-								dash.CastShadow = false
-								d += M(9)
-							end
-						end
-					end
+						if minor then Enum.Material.Pavement else Enum.Material.Asphalt, Height.At, M(6), dashed)
 					tick()
 				end
 				for _, bld in chunk.b do
@@ -483,7 +485,7 @@ function CityBuilder.Build(parentRoot: Instance, yieldEvery: number?): Model?
 				for _, poi in chunk.poi do
 					local text = labelText(poi.k, poi.nm)
 					if text then
-						addLabel(chunkModel, Vector3.new(poi.x, 8, poi.z), text)
+						addLabel(chunkModel, Vector3.new(poi.x, Height.At(poi.x, poi.z) + 8, poi.z), text)
 					end
 					serviceAt(chunkModel, poi)
 				end

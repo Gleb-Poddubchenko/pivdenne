@@ -40,6 +40,8 @@ local function wedgePair(a: Vector3, b: Vector3, c: Vector3, thickness: number):
 		CFrame.fromMatrix((a + c) / 2, -right, up, -back), Vector3.new(thickness, height, math.abs(ac:Dot(back)))
 end
 
+Geometry.WedgePair = wedgePair
+
 -- Fill a flat triangulated polygon with Terrain (e.g. Water), `depth` studs deep below y.
 function Geometry.TerrainPolygon(flat: { number }, tri: { number }, y: number, depth: number, material: Enum.Material)
 	local terrain = workspace.Terrain
@@ -113,6 +115,54 @@ function Geometry.Polyline(parent: Instance, flat: { number }, width: number, y:
 			Geometry.Part(parent, "Road", Vector3.new(width, thickness, len), CFrame.lookAt((a + b) / 2, b), color, material)
 		end
 		if i > 1 then
+			local joint = Geometry.Part(parent, "Joint", Vector3.new(thickness, width, width), CFrame.new(a) * CFrame.Angles(0, 0, math.pi / 2), color, material)
+			joint.Shape = Enum.PartType.Cylinder
+		end
+	end
+end
+
+-- Polyline that follows the ground: segments are subdivided every `step` studs and
+-- each point is lifted to heightAt(x, z) + yOffset. Optional dashed centre line.
+function Geometry.DrapedPolyline(parent: Instance, flat: { number }, width: number, yOffset: number, thickness: number,
+	color: Color3, material: Enum.Material?, heightAt: (number, number) -> number, step: number, dashed: boolean?)
+	local pts: { Vector3 } = {}
+	local n = #flat // 2
+	for i = 1, n - 1 do
+		local ax, az, bx, bz = flat[2 * i - 1], flat[2 * i], flat[2 * i + 1], flat[2 * i + 2]
+		local len = math.sqrt((bx - ax) ^ 2 + (bz - az) ^ 2)
+		local pieces = math.max(1, math.ceil(len / step))
+		for k = 0, pieces - 1 do
+			local t = k / pieces
+			local x, z = ax + (bx - ax) * t, az + (bz - az) * t
+			table.insert(pts, Vector3.new(x, heightAt(x, z) + yOffset, z))
+		end
+	end
+	if n >= 1 then
+		local x, z = flat[2 * n - 1], flat[2 * n]
+		table.insert(pts, Vector3.new(x, heightAt(x, z) + yOffset, z))
+	end
+	local dashLen, dashGap = 10.5, 21 -- 3 m dash, 6 m gap
+	local carry = 0
+	for i = 1, #pts - 1 do
+		local a, b = pts[i], pts[i + 1]
+		local len = (b - a).Magnitude
+		if len > 0.05 then
+			Geometry.Part(parent, "Road", Vector3.new(width, thickness, len + 0.1), CFrame.lookAt((a + b) / 2, b), color, material)
+			if dashed then
+				local dir = (b - a) / len
+				local d = carry
+				while d < len do
+					local pos = a + dir * math.min(d + dashLen / 2, len) + Vector3.new(0, thickness / 2 + 0.02, 0)
+					local dash = Geometry.Part(parent, "Marking", Vector3.new(0.4, 0.04, math.min(dashLen, len - d)), CFrame.lookAt(pos, pos + dir), Color3.fromRGB(235, 235, 230))
+					dash.CanCollide = false
+					dash.CanQuery = false
+					dash.CastShadow = false
+					d += dashLen + dashGap
+				end
+				carry = d - len
+			end
+		end
+		if i > 1 and math.abs((pts[i] - pts[i - 1]).Unit:Dot((b - a).Unit)) < 0.995 then
 			local joint = Geometry.Part(parent, "Joint", Vector3.new(thickness, width, width), CFrame.new(a) * CFrame.Angles(0, 0, math.pi / 2), color, material)
 			joint.Shape = Enum.PartType.Cylinder
 		end

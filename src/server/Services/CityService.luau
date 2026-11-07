@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 
 local CityBuilder = require(script.Parent.Parent.City.CityBuilder)
+local Height = require(script.Parent.Parent.City.Height)
 
 local CityService = {}
 
@@ -31,7 +32,8 @@ function CityService.BuildServicePoint(center: Vector3)
 		p.Name = name
 		p.Anchored = true
 		p.Size = Vector3.new(M(2), M(2.4), M(1.5))
-		p.CFrame = CFrame.new(center + offset + Vector3.new(0, M(1.2) + 0.2, 0))
+		local spot = center + offset
+		p.CFrame = CFrame.new(spot.X, Height.At(spot.X, spot.Z) + M(1.2) + 0.2, spot.Z)
 		p.Color = color
 		p.Material = Enum.Material.SmoothPlastic
 		p.Parent = folder
@@ -52,7 +54,8 @@ function CityService.BuildServicePoint(center: Vector3)
 	booth("KeyKiosk", "KeyKiosk", Vector3.new(-5, 0, 10), Color3.fromRGB(40, 90, 160), "КЛЮЧІ")
 	booth("CarDealer", "CarDealer", Vector3.new(5, 0, 10), Color3.fromRGB(30, 60, 110), "АВТОСАЛОН")
 	for i, x in { 16, 26 } do
-		local pos = center + Vector3.new(x, 0.3, 4)
+		local pos = center + Vector3.new(x, 0, 4)
+		pos = Vector3.new(pos.X, Height.At(pos.X, pos.Z) + 0.3, pos.Z)
 		local spot = Instance.new("Part")
 		spot.Name = "ParkingSpot" .. i
 		spot.Anchored = true
@@ -81,7 +84,7 @@ function CityService.Init()
 	end
 
 	if Config.Map.MoveSpawns then
-		local spawnPos = Vector3.new(index.Spawn.x, 0.6, index.Spawn.z)
+		local spawnPos = Vector3.new(index.Spawn.x, Height.At(index.Spawn.x, index.Spawn.z) + 0.6, index.Spawn.z)
 		local found = false
 		for _, d in workspace:GetDescendants() do
 			if d:IsA("SpawnLocation") then

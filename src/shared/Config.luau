@@ -212,6 +212,10 @@ local Config = {
 		TerrainGround = true, -- ground and sea/lakes as Terrain (real water you can swim in)
 		SeaExtrude = 1200, -- studs of sea drawn on the water side of each coastline segment
 		SeaDepth = 16,
+		-- Coastal cliffs (from the elevation data): beach width at the waterline and
+		-- horizontal run of the cliff face, in metres. NEEDS VERIFICATION from photos.
+		CliffBeach = 18,
+		CliffRun = 14,
 		Trees = true,
 		StreetLamps = true,
 		RoadMarkings = true, -- dashed centre lines on main roads, zebra crossings

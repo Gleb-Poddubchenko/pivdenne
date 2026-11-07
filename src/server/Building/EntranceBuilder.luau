@@ -46,7 +46,7 @@ function EntranceBuilder.Build(parent: Instance, plan: EntrancePlanner.Plan): Mo
 		normal = Vector3.new(0, 0, -1)
 	end
 	normal = normal.Unit
-	local base = Vector3.new(plan.X, 0, plan.Z)
+	local base = Vector3.new(plan.X, (plan :: any).Y or 0, plan.Z) -- Y = ground height at the door
 	local cf = CFrame.lookAt(base, base + normal) -- on the wall face, LookVector = outward
 
 	local model = Instance.new("Model")

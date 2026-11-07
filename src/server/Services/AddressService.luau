@@ -10,6 +10,7 @@ local Net = require(Shared:WaitForChild("Net"))
 local TextUtil = require(Shared:WaitForChild("TextUtil"))
 
 local MapData = require(script.Parent.Parent.City.MapData)
+local Height = require(script.Parent.Parent.City.Height)
 local RateLimiter = require(script.Parent.Parent.Util.RateLimiter)
 
 type Entry = { Position: Vector3, Label: string }
@@ -39,7 +40,7 @@ local function build()
 					x, z = b.pl[1][1] + b.pl[1][3] * 4, b.pl[1][2] + b.pl[1][4] * 4
 				end
 				byStreet[key][TextUtil.NormalizeNumber(b.hn)] = {
-					Position = Vector3.new(x, 3, z),
+					Position = Vector3.new(x, Height.At(x, z) + 3, z),
 					Label = ("%s, %s"):format(b.sa or b.st, b.hn),
 				}
 			end
