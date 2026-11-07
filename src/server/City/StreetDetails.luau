@@ -69,8 +69,8 @@ function StreetDetails.Railway(parent: Instance, flat: { number })
 	local gauge = M(1.52)
 	for i = 1, #flat // 2 - 1 do
 		local ax, az, bx, bz = flat[2 * i - 1], flat[2 * i], flat[2 * i + 1], flat[2 * i + 2]
-		local a = Vector3.new(ax, Height.At(ax, az), az)
-		local b = Vector3.new(bx, Height.At(bx, bz), bz)
+		local a = Vector3.new(ax, Height.Ground(ax, az), az)
+		local b = Vector3.new(bx, Height.Ground(bx, bz), bz)
 		local len = (b - a).Magnitude
 		if len > 0.2 then
 			local mid = (a + b) / 2
@@ -92,7 +92,7 @@ function StreetDetails.Tree(parent: Instance, x: number, z: number, size: number
 	local poplar = h % 5 == 0 -- pyramidal poplars line many Soviet-era streets
 	local height = M(if poplar then 13 else 8) * size
 	local trunkH = height * (if poplar then 0.3 else 0.4)
-	local gy = Height.At(x, z)
+	local gy = Height.Ground(x, z)
 	local trunk = Geometry.Part(parent, "Trunk", Vector3.new(trunkH, M(0.35) * size, M(0.35) * size),
 		CFrame.new(x, gy + trunkH / 2, z) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(92, 72, 56), Enum.Material.Wood)
 	trunk.Shape = Enum.PartType.Cylinder
@@ -117,7 +117,7 @@ end
 function StreetDetails.Lamp(parent: Instance, x: number, z: number, angle: number)
 	local poleH = M(8.5)
 	local toward = Vector3.new(math.cos(angle), 0, math.sin(angle))
-	local base = Vector3.new(x, Height.At(x, z), z)
+	local base = Vector3.new(x, Height.Ground(x, z), z)
 	Geometry.Part(parent, "LampPole", Vector3.new(M(0.22), poleH, M(0.22)), CFrame.new(base + Vector3.new(0, poleH / 2, 0)), CONCRETE, Enum.Material.Concrete)
 	local armLen = M(1.6)
 	local armMid = base + Vector3.new(0, poleH - 0.3, 0) + toward * (armLen / 2)
@@ -144,7 +144,7 @@ function StreetDetails.Crossing(parent: Instance, x: number, z: number, angle: n
 	local across = Vector3.new(-along.Z, 0, along.X)
 	local stripe = M(0.5)
 	local count = math.max(2, math.floor(width / (2 * stripe)))
-	local center = Vector3.new(x, Height.At(x, z) + 0.3, z)
+	local center = Vector3.new(x, Height.Ground(x, z) + 0.3, z)
 	for i = 0, count - 1 do
 		local offset = (i - (count - 1) / 2) * 2 * stripe
 		local pos = center + across * offset
@@ -157,7 +157,7 @@ end
 
 function StreetDetails.BusStop(parent: Instance, x: number, z: number, angle: number, name: string)
 	local toward = Vector3.new(math.cos(angle), 0, math.sin(angle)) -- towards the road
-	local base = Vector3.new(x, Height.At(x, z), z)
+	local base = Vector3.new(x, Height.Ground(x, z), z)
 	local cf = CFrame.lookAt(base, base + toward) -- open side faces the road
 	local w, h = M(3.2), M(2.4)
 	local frame = Color3.fromRGB(70, 110, 160)
@@ -191,7 +191,7 @@ end
 
 function StreetDetails.Bench(parent: Instance, x: number, z: number, angle: number)
 	local facing = Vector3.new(math.cos(angle), 0, math.sin(angle))
-	local base = Vector3.new(x, Height.At(x, z), z)
+	local base = Vector3.new(x, Height.Ground(x, z), z)
 	local cf = CFrame.lookAt(base, base + facing)
 	local wood = Color3.fromRGB(150, 100, 55)
 	Geometry.Part(parent, "BenchSeat", Vector3.new(M(1.8), 0.25, M(0.45)), cf * CFrame.new(0, M(0.45), 0), wood, Enum.Material.WoodPlanks)
@@ -202,7 +202,7 @@ function StreetDetails.Bench(parent: Instance, x: number, z: number, angle: numb
 end
 
 function StreetDetails.Bins(parent: Instance, x: number, z: number)
-	local gy = Height.At(x, z)
+	local gy = Height.Ground(x, z)
 	for i = -1, 1 do
 		local bin = Geometry.Part(parent, "Container", Vector3.new(M(1.0), M(1.1), M(0.9)), CFrame.new(x + i * M(1.15), gy + M(0.55), z),
 			Color3.fromRGB(50, 110, 70), Enum.Material.Metal)

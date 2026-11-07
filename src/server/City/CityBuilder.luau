@@ -157,7 +157,7 @@ local EQUIPMENT_KINDS: { [string]: boolean } = {
 
 local function counterFrame(poi: any): CFrame
 	local normal = Vector3.new(poi.nx or 0, 0, poi.nz or 0)
-	local pos = Vector3.new(poi.x, Height.At(poi.x, poi.z), poi.z)
+	local pos = Vector3.new(poi.x, Height.Ground(poi.x, poi.z), poi.z)
 	if normal.Magnitude < 0.5 then
 		normal = Vector3.new(0, 0, -1)
 	end
@@ -223,7 +223,7 @@ local function entranceDetail(parent: Instance, e: any, height: number)
 		return
 	end
 	normal = normal.Unit
-	local base = Vector3.new(e.x, Height.At(e.x, e.z), e.z)
+	local base = Vector3.new(e.x, Height.Ground(e.x, e.z), e.z)
 	local face = CFrame.lookAt(base, base + normal) -- LookVector = outward
 	local door = Geometry.Part(parent, "EntranceDoor", Vector3.new(M(1.0), M(2.1), 0.3), face * CFrame.new(0, M(1.05), -0.15),
 		Color3.fromRGB(74, 58, 46), Enum.Material.DiamondPlate)
@@ -258,7 +258,7 @@ local function entranceDetail(parent: Instance, e: any, height: number)
 	end
 end
 
-local function buildBuilding(parent: Instance, b: any)
+local function buildBuilding(parent: Instance, b: any): (number, number, Model)
 	local model = Instance.new("Model")
 	model.Name = if b.hn and b.st then ("%s, %s"):format(b.st, b.hn) else ("Building_" .. b.id)
 	model:SetAttribute("OsmId", b.id)
@@ -328,7 +328,7 @@ local function buildBuilding(parent: Instance, b: any)
 	-- Real address plates on the wall facing the street (positions computed offline).
 	if b.pl and b.sa and b.hn then
 		for _, pl in b.pl do
-			local gy = Height.At(pl[1], pl[2])
+			local gy = Height.Ground(pl[1], pl[2])
 			AddressPlates.Create(model, Vector3.new(pl[1], gy, pl[2]), Vector3.new(pl[3], 0, pl[4]), b.sa, b.hn, h + y0 - gy)
 		end
 	end
@@ -341,7 +341,7 @@ local function buildBuilding(parent: Instance, b: any)
 			local plan = plans[i]
 			if plan then
 				local pl = plan :: any
-				pl.Y = Height.At(e.x, e.z)
+				pl.Y = Height.Ground(e.x, e.z)
 				EntranceBuilder.Build(model, pl)
 				local normal = Vector3.new(e.nx or 0, 0, e.nz or 0)
 				if normal.Magnitude > 0.5 then
@@ -367,6 +367,7 @@ local function buildBuilding(parent: Instance, b: any)
 	end
 
 	model.Parent = parent
+	return y0, y0 + h, model
 end
 
 -- PUBLIC ----------------------------------------------------------------------
@@ -420,6 +421,15 @@ function CityBuilder.Build(parentRoot: Instance, frameBudget: number?): Model?
 	local terrain = workspace.Terrain
 	-- Real relief (hills, valleys, coastal cliffs) when elevation data exists.
 	local sculpted = Config.Map.TerrainGround and TerrainBuilder.Build(tick)
+	if sculpted then
+		local n, missing, meanErr, maxErr = TerrainBuilder.Verify(400)
+		print(("[CityDebug] terrain check: %d raycast samples, %d with NO terrain, |terrain - heightmap| mean %.2f / max %.2f studs"):format(
+			n, missing, meanErr, maxErr))
+		city:SetAttribute("TerrainMissing", missing)
+		city:SetAttribute("TerrainMaxError", maxErr)
+	else
+		print("[CityDebug] terrain: flat (no elevation data, or Config.Map.Relief / TerrainGround off)")
+	end
 	if Config.Map.TerrainGround and not sculpted then
 		TerrainBuilder.SetColours(terrain)
 	end
@@ -440,7 +450,16 @@ function CityBuilder.Build(parentRoot: Instance, frameBudget: number?): Model?
 	city.Parent = parentRoot
 
 	local built = 0
-	for _, name in index.Chunks do
+	local stats = {
+		groundMin = math.huge, groundMax = -math.huge, topMin = math.huge, topMax = -math.huge,
+		sample = "", floating = 0,
+	}
+	local probeParams = RaycastParams.new()
+	probeParams.FilterType = Enum.RaycastFilterType.Include
+	probeParams.FilterDescendantsInstances = { workspace.Terrain }
+	probeParams.IgnoreWater = true
+	for chunkIndex, name in index.Chunks do
+		workspace:SetAttribute("CityProgress", 0.5 + 0.5 * chunkIndex / #index.Chunks)
 		local module = folder:FindFirstChild(name)
 		if module and module:IsA("ModuleScript") then
 			local ok, chunk = pcall(require, module)
@@ -477,18 +496,32 @@ function CityBuilder.Build(parentRoot: Instance, frameBudget: number?): Model?
 					-- roads follow the ground, subdivided every 6 m
 					Geometry.DrapedPolyline(chunkModel, r.p, r.w, y, 0.2,
 						if minor then Color3.fromRGB(150, 146, 140) else Color3.fromRGB(62, 62, 64),
-						if minor then Enum.Material.Pavement else Enum.Material.Asphalt, Height.At, M(6), dashed)
+						if minor then Enum.Material.Pavement else Enum.Material.Asphalt, Height.Ground, M(6), dashed)
 					tick()
 				end
 				for _, bld in chunk.b do
-					buildBuilding(chunkModel, bld)
+					local ground, top, bmodel = buildBuilding(chunkModel, bld)
+					stats.groundMin = math.min(stats.groundMin, ground)
+					stats.groundMax = math.max(stats.groundMax, ground)
+					stats.topMin = math.min(stats.topMin, top)
+					stats.topMax = math.max(stats.topMax, top)
+					if stats.sample == "" and bld.st and bld.hn and string.sub(bld.t, 1, 5) == "panel" then
+						local pivot = bmodel:GetPivot().Position
+						stats.sample = ("%s, %s (%s, %d floors): pivot %s, ground %.1f, roof %.1f"):format(
+							bld.st, bld.hn, bld.t, bld.lv, tostring(Vector3.new(math.floor(pivot.X), math.floor(pivot.Y), math.floor(pivot.Z))), ground, top)
+					end
+					-- a building whose base is more than 4 studs above the terrain is "floating"
+					local hit = workspace:Raycast(Vector3.new(bld.p[1], 2000, bld.p[2]), Vector3.new(0, -2600, 0), probeParams)
+					if not hit or ground - hit.Position.Y > 4 then
+						stats.floating += 1
+					end
 					built += 1
 					tick()
 				end
 				for _, poi in chunk.poi do
 					local text = labelText(poi.k, poi.nm)
 					if text then
-						addLabel(chunkModel, Vector3.new(poi.x, Height.At(poi.x, poi.z) + 8, poi.z), text)
+						addLabel(chunkModel, Vector3.new(poi.x, Height.Ground(poi.x, poi.z) + 8, poi.z), text)
 					end
 					serviceAt(chunkModel, poi)
 				end
@@ -500,6 +533,14 @@ function CityBuilder.Build(parentRoot: Instance, frameBudget: number?): Model?
 	end
 
 	print(("[City] Built %d buildings from OSM (%s)"):format(built, index.Attribution))
+	if built > 0 then
+		print(("[CityDebug] buildings: base Y %.1f .. %.1f studs, roof Y %.1f .. %.1f studs, floating (base > 4 studs above terrain or no terrain): %d"):format(
+			stats.groundMin, stats.groundMax, stats.topMin, stats.topMax, stats.floating))
+		print("[CityDebug] sample block: " .. stats.sample)
+	end
+	city:SetAttribute("BuildingsFloating", stats.floating)
+	city:SetAttribute("BuildingBaseMin", stats.groundMin)
+	city:SetAttribute("BuildingBaseMax", stats.groundMax)
 	return city
 end
 

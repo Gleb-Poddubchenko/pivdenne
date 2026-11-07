@@ -1,8 +1,9 @@
 --!strict
 -- TerrainBuilder: sculpts the real relief of Pivdenne into Roblox Terrain.
 --
---   1. Heightmap: every grid cell = two FillWedge triangles (the same triangles
---      Height.At() interpolates), as thick slabs reaching down to the sea floor.
+--   1. Heightmap: every grid cell = a solid FillBlock column up to its lowest
+--      corner (12-stud crust, never mis-oriented) plus a thin FillWedge cap made of
+--      the same two triangles Height.At() interpolates on.
 --      Material per cell from OSM areas (parks = grass, beaches = sand, parking =
 --      asphalt ...); steep faces become loess (yellow-brown Sandstone).
 --   2. Coastal cliffs: along coastline segments flagged by the converter, a sand
@@ -72,8 +73,10 @@ function TerrainBuilder.Build(tick: () -> ()): boolean
 	local G, X0, Z0, COLS, ROWS = Height.Grid()
 	local floor = -Config.Map.SeaDepth - 8
 	local steep = math.tan(math.rad(30))
+	local CRUST = 12 -- studs of solid ground under the surface (enough to stand, cheap to replicate)
 
 	for r = 1, ROWS - 1 do
+		workspace:SetAttribute("CityProgress", 0.5 * r / ROWS) -- terrain = first half of the build
 		for c = 1, COLS - 1 do
 			local x, z = X0 + (c - 1) * G, Z0 + (r - 1) * G
 			local p00 = Vector3.new(x, Height.Node(c, r), z)
@@ -85,8 +88,17 @@ function TerrainBuilder.Build(tick: () -> ()): boolean
 			if rise / G > steep then
 				material = CLIFF_MATERIAL
 			end
-			slab(terrain, p00, p10, p11, floor, material) -- the two triangles Height.At() uses
-			slab(terrain, p00, p11, p01, floor, material)
+			-- 1) solid axis-aligned column up to the cell's LOWEST corner: unambiguous, so
+			--    there is always walkable ground within a few studs of the real surface
+			local lo = math.min(p00.Y, p10.Y, p01.Y, p11.Y)
+			local hi = math.max(p00.Y, p10.Y, p01.Y, p11.Y)
+			local bottom = if lo < 8 then math.min(lo - CRUST, -Config.Map.SeaDepth - 4) else lo - CRUST
+			terrain:FillBlock(CFrame.new(x + G / 2, (bottom + lo) / 2, z + G / 2), Vector3.new(G, lo - bottom, G), material)
+			-- 2) thin sloped cap: the two triangles Height.At() interpolates on
+			if hi - lo > 0.5 then
+				slab(terrain, p00, p10, p11, lo - 2, material)
+				slab(terrain, p00, p11, p01, lo - 2, material)
+			end
 			tick() -- per cell: the caller yields when its frame budget is used up
 		end
 	end
@@ -121,7 +133,31 @@ function TerrainBuilder.Build(tick: () -> ()): boolean
 		end
 		tick()
 	end
+	Height.SetTerrainReady(true)
 	return true
+end
+
+-- Raycasts the built terrain at grid nodes and compares with the heightmap.
+-- Returns samples, missing (no terrain at all), mean and max |error| in studs.
+function TerrainBuilder.Verify(samples: number): (number, number, number, number)
+	local G, X0, Z0, COLS, ROWS = Height.Grid()
+	local missing, sum, worst, n = 0, 0, 0, 0
+	local rng = Random.new(42)
+	for _ = 1, samples do
+		local c, r = rng:NextInteger(2, math.max(2, COLS - 2)), rng:NextInteger(2, math.max(2, ROWS - 2))
+		local x, z = X0 + (c - 1) * G + G * 0.37, Z0 + (r - 1) * G + G * 0.61
+		local expected = Height.At(x, z)
+		local got = Height.Probe(x, z)
+		n += 1
+		if not got then
+			missing += 1
+		elseif expected > 1 then -- skip sea / beach where water and cliffs reshape the ground
+			local err = math.abs(got - expected)
+			sum += err
+			worst = math.max(worst, err)
+		end
+	end
+	return n, missing, if n - missing > 0 then sum / (n - missing) else 0, worst
 end
 
 return TerrainBuilder

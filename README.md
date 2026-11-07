@@ -88,6 +88,31 @@ src/client/      -> StarterPlayer.StarterPlayerScripts.Client
 
 Studio settings: Game Settings → Security → **Enable Studio Access to API Services** (if this is off, saving is skipped and a warning is printed). Workspace → **StreamingEnabled = true**.
 
+## Debugging the city (Studio)
+
+**Start-up sequence:**
+1. The server builds the terrain, then the city. Meanwhile players see a **loading screen** with a progress bar and **no character is spawned** (`Players.CharacterAutoLoads = false`).
+2. When the build finishes, the spawn pad is placed by raycast on the real ground next to the ЖЕК / КЛЮЧІ / АВТОСАЛОН kiosks: anchored, collidable, visible. The area is streamed in, and only then are characters loaded.
+3. Each new character stays anchored until the client can see ground under it (20 s limit).
+4. Respawns after death go through the same path.
+
+**Output to paste back:**
+```
+[CityDebug] terrain check: 400 raycast samples, 0 with NO terrain, |terrain - heightmap| mean … / max … studs
+[City] Built 469 buildings from OSM (…)
+[CityDebug] buildings: base Y … .. … studs, roof Y … .. … studs, floating (…): 0
+[CityDebug] sample block: вулиця …, … (panel9, 9 floors): pivot …, ground …, roof …
+[CityDebug] spawn x=21 z=112 | heightmap Y 113.8 | terrain raycast Y … | spawn pad top Y … | build took … s
+```
+
+**Debug keys** (Studio, the place owner, or `Config.Debug.Admins`):
+- `\` toggles a free-fly camera: WASD, Q/E down/up, Shift is fast, hold the right mouse button to look around, T teleports you to the ground below the camera.
+- `]` prints your position, the heightmap vs. real terrain height under you, and the server's build stats.
+
+**Fallbacks:**
+- `Config.Map.Relief = false` gives a flat city at sea level, the quickest way to tell a terrain problem from anything else.
+- `Config.Time.Cycle = false` (the default) keeps the clock at 13:00.
+
 ## 2. Architecture rules
 
 - **Server-authoritative.** Clients only send intents (`IntercomDial`, `UseKey`, `CallAction`, …). For each one the server checks argument types, rate limits, distance to the panel or kiosk, ownership and money.

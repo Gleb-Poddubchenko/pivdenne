@@ -37,6 +37,7 @@ local FUNCTIONS = {
 	"SetLoadout", -- ({ equipmentId }) -> (ok, message)
 	"GetStreets", -- () -> { string }
 	"FindAddress", -- (street, number) -> (ok, Vector3 | message, label?)
+	"DebugInfo", -- () -> { string }?  (Studio / place owner / Config.Debug.Admins only)
 }
 
 local Net = {}

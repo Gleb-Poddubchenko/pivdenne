@@ -27,7 +27,7 @@ function Height.Load(): boolean
 		return loaded
 	end
 	tried = true
-	if not Config.Map.TerrainGround then
+	if not Config.Map.TerrainGround or not Config.Map.Relief then
 		return false
 	end
 	local folder = ServerStorage:FindFirstChild("MapData")
@@ -108,11 +108,42 @@ function Height.At(x: number, z: number): number
 	return h00 + fz * (h01 - h00) + fx * (h11 - h01)
 end
 
+-- GROUND PROBING ------------------------------------------------------------
+-- Once the terrain exists, Ground() raycasts straight down onto it, so objects sit
+-- on the terrain that is really there, whatever the heightmap maths says. Before
+-- that (or where the ray misses) it falls back to At().
+
+local terrainReady = false
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Include
+rayParams.IgnoreWater = true
+
+function Height.SetTerrainReady(ready: boolean)
+	terrainReady = ready
+	rayParams.FilterDescendantsInstances = { workspace.Terrain }
+end
+
+-- Terrain surface height under (x, z) by raycast, or nil if there is no terrain.
+function Height.Probe(x: number, z: number): number?
+	local hit = workspace:Raycast(Vector3.new(x, 2000, z), Vector3.new(0, -2600, 0), rayParams)
+	return if hit then hit.Position.Y else nil
+end
+
+function Height.Ground(x: number, z: number): number
+	if terrainReady then
+		local y = Height.Probe(x, z)
+		if y then
+			return y
+		end
+	end
+	return Height.At(x, z)
+end
+
 -- Lowest and highest ground under a set of points (flat x,z list).
 function Height.Range(flat: { number }): (number, number)
 	local lo, hi = math.huge, -math.huge
 	for i = 1, #flat - 1, 2 do
-		local h = Height.At(flat[i], flat[i + 1])
+		local h = Height.Ground(flat[i], flat[i + 1])
 		lo = math.min(lo, h)
 		hi = math.max(hi, h)
 	end

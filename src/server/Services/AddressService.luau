@@ -40,7 +40,7 @@ local function build()
 					x, z = b.pl[1][1] + b.pl[1][3] * 4, b.pl[1][2] + b.pl[1][4] * 4
 				end
 				byStreet[key][TextUtil.NormalizeNumber(b.hn)] = {
-					Position = Vector3.new(x, Height.At(x, z) + 3, z),
+					Position = Vector3.new(x, Height.Ground(x, z) + 3, z),
 					Label = ("%s, %s"):format(b.sa or b.st, b.hn),
 				}
 			end

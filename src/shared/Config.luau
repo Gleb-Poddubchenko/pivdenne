@@ -210,6 +210,7 @@ local Config = {
 		LabelDistance = 220, -- studs at which POI labels are visible
 		-- Realism details (turn down for low-end phones)
 		TerrainGround = true, -- ground and sea/lakes as Terrain (real water you can swim in)
+		Relief = true, -- real hills/cliffs from elevation data; false = flat map at sea level (debug fallback)
 		SeaExtrude = 1200, -- studs of sea drawn on the water side of each coastline segment
 		SeaDepth = 16,
 		-- Coastal cliffs (from the elevation data): beach width at the waterline and
@@ -236,12 +237,19 @@ local Config = {
 	},
 
 	Time = {
-		DayLengthMinutes = 24, -- one in-game day
+		Cycle = false, -- day/night cycle off while testing: the clock stays at StartClock
+		DayLengthMinutes = 24, -- one in-game day (when Cycle = true)
 		StartClock = 13,
 		Latitude = 46.62, -- Pivdenne: real sun path
 		NightStart = 19.8,
 		NightEnd = 6.2,
 		LightDistance = 320, -- client lights street lamps / windows within this range
+	},
+
+	Debug = {
+		Admins = {} :: { number }, -- UserIds allowed to fly / read debug info outside Studio (the place owner always is)
+		FlyKey = Enum.KeyCode.BackSlash, -- free camera
+		InfoKey = Enum.KeyCode.RightBracket, -- print position / ground height / city stats
 	},
 
 	Dev = {
