@@ -6,6 +6,9 @@ Phase 1 sets up the foundation: data persistence, entrances, entrance doors, int
 
 ```
 default.project.json                      Rojo project (also turns on StreamingEnabled)
+tools/fetch_osm.sh        download OSM data for Pivdenne and convert it
+tools/osm_to_roblox.py    OSM XML -> Luau map chunks (buildings, addresses, plates, roads, areas, POIs)
+map/data/        -> ServerStorage.MapData             (generated Luau chunks + Index)
 src/shared/      -> ReplicatedStorage.Shared          (ModuleScripts)
   Config.luau            scale (1 m = 3.5 studs), prices, timings, sound ids
   Types.luau             shared type definitions
@@ -31,6 +34,10 @@ src/server/      -> ServerScriptService.Server
     ApartmentDoorService flat doors: enter/leave, doorbell, guest passes
     VehicleService       dealership, spawning cars at parking spots, seats, lock/lights/horn, speed checks
   Vehicles/CarFactory    builds a drivable car (body, seats, sprung wheels, steering, motors)
+  City/CityBuilder       builds Workspace.City from MapData (also bakeable from the command bar)
+  City/AddressPlates     street + house-number plate on a wall
+  City/Geometry          part / triangle / polygon / polyline helpers
+    CityService          builds the city at runtime and moves the spawn onto a real street
   Util/                  RateLimiter, Validation, Sfx
   Dev/TestSceneBuilder   test 9-storey block (turn off with Config.Dev.BuildTestScene)
   Dev/TestElevatorBuilder test 9-stop lift tower with landings and a climbable ladder
@@ -218,20 +225,56 @@ Children: `Rail`; `Cabin` (built **at floor 1**: `Platform`, `Bounds`, `ButtonPa
 | 8 | Leave the game | the car disappears; it's still in "Мої машини" after rejoining |
 | 9 | Exploit check: speed hack the owned car | after 2 s: "Двигун заглух", the server takes physics back |
 
-## 8. OSM → Roblox map pipeline (Phase 2)
+## 8. Phase 2: the real city from OpenStreetMap
 
-1. **Export:** Overpass query for the Yuzhne/Pivdenne bounding box: `building=*` (with `building:levels`, `addr:*`), `highway=*`, `landuse`, `leisure`, `amenity`, `shop`. Save it as `.osm`/GeoJSON.
-2. **Project:** use a local tangent plane (ENU) centred on one fixed origin point near the city centre: metres east → +X, metres north → −Z, then multiply by **3.5** (1 m = 3.5 studs). A ~6 × 4 km city fits within ±11 000 studs, which is fine for float precision.
-3. **Convert**, either way:
-   - **(A) Script route (recommended):** a Python converter turns footprints into JSON chunks (ModuleScripts per 512-stud grid cell). A Studio plugin builds walls along each polygon edge, roofs (triangulated with WedgeParts), and `floors = building:levels` at 2.8 m per floor. Each footprint is matched to a typology template (5-storey / 9-storey / 12–16-storey panel blocks) that holds the instanced interiors and entrances.
-   - **(B) Blender route:** blender-osm / "Blosm" add-on → clean up → export FBX per chunk → 3D Importer in Studio.
-4. **Streaming/LOD:** one Model per building, `ModelStreamingMode = Atomic` for entrances and `Persistent` only for landmarks. Use low-poly façade MeshParts with `RenderFidelity = Automatic`. Interiors are separate Models that stream in only near the entrance.
-5. **Attribution:** "Map data © OpenStreetMap contributors" is on the HUD at all times (ODbL). Add the same text to the game description, and say that the derived map database is ODbL.
+Every building, street and address comes from OpenStreetMap. **Nothing is invented:** if OSM has no address for a building, it gets no plate.
+
+**Pipeline**
+1. `bash tools/fetch_osm.sh` downloads the Pivdenne bounding box from the OSM API in 4 tiles into `data/`. The box is the city boundary, OSM relation 3606547, padded about 400 m.
+2. It then runs `python3 tools/osm_to_roblox.py data/*.osm --out map/data` (standard-library Python only). The converter:
+   - **Projects** coordinates onto a local plane around the city centre (46.6225029, 31.0994897): east → +X, north → −Z, **1 m = 3.5 studs**.
+   - **Buildings:** footprints are simplified and oriented. Height = `building:levels` × 2.8 m, or `height`, or a typology default. Each building gets a typology: panel5 / panel9 / panel_high / house / garage / industrial / public / commercial.
+   - **Addresses:** taken from `addr:street` + `addr:housenumber`, including separate address points inside an outline.
+   - **Address plate placement:** for every addressed building, it picks the wall facing the street named in the address (falling back to the nearest road). Plates go 1.5 m in from the corners, with a second plate on walls longer than 25 m. Street names are shortened the standard way (вулиця → вул., проспект → просп., провулок → пров. …).
+   - **Entrances:** `entrance=*` nodes, with their `ref` (entrance number) and `addr:flats`.
+   - **Other features:** roads with widths, parks/water/beach/parking areas, and named POIs.
+   - **Output:** chunks of 512 studs, split so each module stays under 180 KB, plus `Index.luau` (bounds, spawn, a list of streets, stats).
+3. Rojo syncs `map/data` to `ServerStorage.MapData`. On server start `CityService` builds `Workspace.City`, a little per frame:
+   - **Buildings:** rectangular blocks become a single box with a roof slab and window bands; other shapes become walls plus a roof triangulated from WedgeParts.
+   - **Address plates** on the walls.
+   - **Entrances:** a door and canopy at each entrance, with an "Під'їзд N · кв. X–Y" plate when OSM has those tags.
+   - **Roads, areas, ground,** and labels for schools, markets, the bus station and so on.
+   - **Spawn** is moved onto a main road near the centre.
+4. **For release, bake the city:** run `require(game.ServerScriptService.Server.City.CityBuilder).Build(workspace)` in the Studio command bar, save the place, then set `Config.Map.BuildAtRuntime = false`.
+
+**Rules from the brief:**
+- Shop, fuel and bank labels show generic categories instead of chain names (`Config.Map.ShowBrandNames = false`).
+- "Map data © OpenStreetMap contributors" stays on the HUD.
+- The derived map is ODbL.
+
+When map data exists, the dev test scene isn't built, because it would overlap the city centre. Set `Config.Dev.ForceTestScene` to build it anyway.
+
+**How to test**
+
+| # | Test | Expected |
+|---|---|---|
+| 1 | `bash tools/fetch_osm.sh` | stats are printed: buildings, how many have addresses, plates, entrances, streets |
+| 2 | Rojo sync → Play | Output: `[City] Built N buildings from OSM`; you spawn on a real street |
+| 3 | Walk to a block whose address you know | the plate on its street-facing wall shows the OSM street and number |
+| 4 | Explorer: Workspace.City → a building model | model name and attributes = `Street`, `HouseNumber`, `Levels`, `OsmId`; check the OsmId on openstreetmap.org/way/ID |
+| 5 | Find a 9-storey block | 9 window bands, about 26 m tall (≈ 90 studs) |
+| 6 | A missing or wrong address in game | fix it **in OpenStreetMap** (that helps everyone), then re-run the script |
+
+**Still to come in Phase 2:**
+- Entrances that work like the test entrances: the city entrances are currently decorative doors. The next step generates a real `Entrance` (intercom + door) at each OSM entrance, leading into an **instanced stairwell** (like the apartment interiors) with the Soviet lift and an `ApartmentDoor` for each flat in `addr:flats`.
+- The sea and coastline (`natural=coastline` → Terrain water).
+- Facade templates with balconies.
+- Courtyard props: playgrounds, benches, garages.
 
 ## 9. Roadmap
 
 - **Phase 1 (done):** data, entrances, doors, intercoms, keys, flats, kiosks.
-- **Phase 2 (next):** OSM converter and building typology templates (5/9/14-storey), courtyards (playgrounds, benches, garages), stairwells, garbage chutes, mailboxes. The 9-storey template will put an `Elevator` model in each stairwell and `ApartmentDoor`s on every landing.
+- **Phase 2 (in progress):** done: OSM converter, city builder, real address plates, entrances, roads, areas, POI labels. Next: working entrances with instanced stairwells, lifts and flat doors, the coastline, facade templates, courtyard props.
 - **Phase 3 (done):** Soviet elevator system.
 - **Phase 4 (done):** apartments (instanced interiors, doorbell, fridge) and shops (catalogues, tills, inventory). Next: a "2k" layout, furniture you can buy and place, a way to earn money (jobs), and shop opening hours with a day/night cycle.
 - **Phase 5 (done):** vehicles. Next: fuel and petrol stations, garages in courtyards (tag `CarSpawn` inside a garage), traffic/NPC cars, damage.
@@ -247,6 +290,8 @@ Children: `Rail`; `Cabin` (built **at floor 1**: `Platform`, `Bounds`, `ButtonPa
 - Entrance door style: brown or green steel, the canopy shape, and whether there are steps or a ramp.
 - Origin coordinates for the map projection, and the positions of landmarks: central square(s), the seaside promenade and beach access, the port and plant area, schools, markets, the bus station, main shops.
 - Lifts in Yuzhne: which plant made them (Karacharovo/KMZ, Mogilev/MOGILEVLIFTMASH, Shcherbinka?), and whether 1980s blocks have **automatic sliding shaft doors** rather than the hinged ones you asked for. Hinged manual shaft doors are typical of older lifts. Also the cabin size, the panel layout (one or two button columns, СТОП/ВИКЛИК labels in Russian or Ukrainian), the wall finish, and whether a lift stops at every floor or only at half-landings.
+- Address plate design in Yuzhne: colours, size, height, which corner, and whether one or both street-facing corners have one. The defaults are white on dark blue, 60 × 40 cm, 3 m up (`Config.Map.Plate`).
+- OSM coverage: how many buildings have `building:levels` and `addr:*`, and whether entrances are mapped. The converter prints these numbers; anything missing is best fixed directly in OSM.
 - Flat layouts in Yuzhne's panel series: room sizes, combined or separate bathroom, glazed or open balconies, and flats per floor. Please send floor plans or photos.
 - Real shop names: these get parody names unless you confirm otherwise.
 

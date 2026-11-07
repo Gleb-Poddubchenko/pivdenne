@@ -11,7 +11,10 @@ local Services = script.Parent:WaitForChild("Services")
 
 Net.Init() -- create all remotes before any client asks for them
 
-if Config.Dev.BuildTestScene then
+-- With real OSM map data present the city replaces the dev test scene
+-- (it would overlap the city centre). Set Dev.ForceTestScene to keep both.
+local CityService = require(Services:WaitForChild("CityService"))
+if Config.Dev.BuildTestScene and (Config.Dev.ForceTestScene or not CityService.HasMap()) then
 	local Dev = script.Parent:WaitForChild("Dev")
 	require(Dev:WaitForChild("TestSceneBuilder")).Build()
 	require(Dev:WaitForChild("TestElevatorBuilder")).Build()
@@ -21,6 +24,7 @@ if Config.Dev.BuildTestScene then
 end
 
 local order = {
+	"CityService",
 	"PlayerDataService",
 	"EntranceRegistry",
 	"DoorService",

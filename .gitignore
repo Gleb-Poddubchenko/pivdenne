@@ -3,3 +3,4 @@ sourcemap.json
 *.rbxlx
 *.lock
 .DS_Store
+data/

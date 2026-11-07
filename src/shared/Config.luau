@@ -157,10 +157,31 @@ local Config = {
 		RegionCode = "BH", -- Odesa oblast plate prefix
 	},
 
+	Map = {
+		-- City generated from OpenStreetMap (ServerStorage.MapData, made by tools/osm_to_roblox.py).
+		BuildAtRuntime = true, -- build on server start if Workspace.City is missing (or bake it in Studio)
+		YieldEvery = 120, -- features per frame while building at runtime
+		ReplaceBaseplate = true, -- the 2048-stud template baseplate is replaced by ground covering the city
+		MoveSpawns = true, -- move SpawnLocations to the generated spawn point (a main road near the centre)
+		WindowBands = true, -- window strips on panel blocks (cheap facade detail)
+		EntranceDetails = true, -- canopy + door + "під'їзд" plate at OSM entrance nodes
+		ShowBrandNames = false, -- shop/fuel/bank labels show a generic category instead of chain names
+		LabelDistance = 220, -- studs at which POI labels are visible
+		-- Address plate (адресна табличка). Colours/size NEEDS VERIFICATION from photos.
+		Plate = {
+			Width = 0.6, -- metres
+			Height = 0.4,
+			Elevation = 3.0, -- metres above ground (lower on small buildings)
+			Background = Color3.fromRGB(18, 58, 140),
+			TextColor = Color3.fromRGB(255, 255, 255),
+		},
+	},
+
 	Dev = {
 		-- Builds a test block with two entrances, a key kiosk and a housing office.
 		-- Turn off once the real map is in place.
 		BuildTestScene = true,
+		ForceTestScene = false, -- build the test scene even when OSM map data exists
 	},
 }
 

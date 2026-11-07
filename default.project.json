@@ -3,14 +3,20 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Shared": { "$path": "src/shared" }
+      "Shared": {
+        "$path": "src/shared"
+      }
     },
     "ServerScriptService": {
-      "Server": { "$path": "src/server" }
+      "Server": {
+        "$path": "src/server"
+      }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "Client": { "$path": "src/client" }
+        "Client": {
+          "$path": "src/client"
+        }
       }
     },
     "Workspace": {
@@ -18,6 +24,11 @@
         "StreamingEnabled": true,
         "StreamingMinRadius": 96,
         "StreamingTargetRadius": 384
+      }
+    },
+    "ServerStorage": {
+      "MapData": {
+        "$path": "map/data"
       }
     }
   }
